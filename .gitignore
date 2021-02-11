@@ -1,0 +1,6 @@
+# Git ignore
+.ipynb_checkpoints
+
+slurm*.out
+
+dask-worker-space/**
