@@ -37,6 +37,10 @@ class Cloud_Metric(object):
 #             self.colors = ['red','orange','yellow','green','blue','purple','pink']
             self.__addlistsanddicts()
             
+            # Prep for NCL-like plotting:
+            self.contour_levels = [-6,-5,-4,-3,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,3,4,5,6]
+            self.color_map = cmaps.ncl_default
+            
 #             self.__load_GOCCP_data()
             try:
                 self.__load_GOCCP_data()
@@ -50,11 +54,14 @@ class Cloud_Metric(object):
                 self.__load_CALIOP_olimpia()
             except:
                 print("Could not load CALIOP SLFs.")
+                self.incloud_caliop_slf = None
+                self.ct_caliop_slf = None
                 return None
             try:
                 self.__load_CERESEBAF()
             except:
                 print('Failed to load CERES-EBAF data.')
+                self.ceres_data = None
                 
     
     def __addlistsanddicts(self):
@@ -75,10 +82,12 @@ class Cloud_Metric(object):
                           'CAL_LIQ':    ['CLDTOT_CAL_LIQ','CLDLOW_CAL_LIQ','CLDMED_CAL_LIQ',
                                          'CLDHGH_CAL_LIQ'],
                           'CAL_ICE':    ['CLDTOT_CAL_ICE','CLDLOW_CAL_ICE','CLDMED_CAL_ICE',
-                                         'CLDHGH_CAL_ICE']}
+                                         'CLDHGH_CAL_ICE'],
+                          'CLD_CAL':     ['CLDTOT_CAL','CLDLOW_CAL','CLDMED_CAL','CLDHGH_CAL']}
         self.seasons = ['DJF','MAM','JJA','SON']
         self.projdict = {'PlateCarree':ccrs.PlateCarree(),'Arctic':ccrs.NorthPolarStereo(),
-                         'Mollweide':ccrs.Mollweide(), "Antarctic":ccrs.SouthPolarStereo()}
+                         'Mollweide':ccrs.Mollweide(central_longitude=180), "Antarctic":ccrs.SouthPolarStereo(),
+                         'Robinson':ccrs.Robinson()}
         # Dictionary with GOCCP variables as keys and COSP variables as values: (clccalipso not in COSP?)
         self.name_dict = {
                      'cllcalipso_liq':'CLDLOW_CAL_LIQ','clmcalipso_liq':'CLDMED_CAL_LIQ',
@@ -122,7 +131,8 @@ class Cloud_Metric(object):
         '''
         print('Loading GOCCP data...', end = '')
         
-        goccp_dir = 'GOCCP_data/2Ddata/f19_tn14_interpolation/'
+#         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_interpolation/'
+        goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/'
         #'/nird/home/jonahks/p/jonahks/GOCCP_data/'
                 
         # These have an extra dimenson and need to indexed at 0
@@ -155,17 +165,18 @@ class Cloud_Metric(object):
         _cloud_ds = xr.open_mfdataset(cloud, combine='by_coords')
         
         _goccp_data = xr.merge([_phase_ds, _cloud_ds])
-        
+
         # Select right value for undefined clouds.
         for i in unvars:
              _goccp_data[i] = _goccp_data[i].isel(cat1=0)
         # Scale cloud fraction values to a percent value to match COSP
         goccp_vars = list(self.name_dict.keys())
+
         for i in goccp_vars: #think maybe: with xr.set_options(keep_attrs=True)
             _goccp_data[i] = 100*_goccp_data[i]
-            
+
         # Quickly add a variable to generate weights
-        _goccp_data = add_weights(_goccp_data)
+        _goccp_data = add_weights(_goccp_data) # this is causing an issue before I interpolate. Error:  (<class 'KeyError'>, KeyError('lat'), <traceback object at 0x2b3808c7beb0>)
 
         # Rename variables so they will match COSP names and index correctly
         self.goccp_data = _goccp_data.rename(self.name_dict)
@@ -229,7 +240,6 @@ class Cloud_Metric(object):
         '''
         General line plot function averaging over longitudes.
         '''
-        
         # Handle input errors
         if (seasonal and season):
             print('Cannot plot both season %s and seasonal: True. \n')
@@ -242,6 +252,7 @@ class Cloud_Metric(object):
         if layers:
             try: 
                 varlist = self.layer_prefixes[var]
+                self.__check_for_vars(varlist)
             except:
                 print('''Layers prefix %s not found. Select from: \n
                 %s ''' % (var, str(list(self.layer_prefixes.keys()))))
@@ -252,6 +263,7 @@ class Cloud_Metric(object):
             else:    
                 return self.__layers1Dplotwrapper(varlist, bias=bias, 
                             lat_range=lat_range, season=season)
+        self.__check_for_vars(var)
         if seasonal:
             return self.__seasonal1Dplotwrapper(var, bias=bias, 
                         lat_range=lat_range)
@@ -265,17 +277,19 @@ class Cloud_Metric(object):
 
         # Using plt.subplots only for consistency here.
         fig, axes = plt.subplots(nrows=1,ncols=1,figsize=[6,4])
+        fig.set_dpi(200)
         obs_source, obs_label = self.__get_data_source(var)
+        obs_da = obs_source
         if not bias:
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                 obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
             self.__standard1Dplot(var, obs_da, axes, bias=False, lat_range=lat_range, 
-                                  label=obs_label)
+                                  label=obs_label,color='black',**kwargs)
 #             self.__standard1Dplot(var, obs_source, axes,
 #                                   lat_range=lat_range, label=obs_label)
         
-        for k in self.cases:
+        for k,color in zip(self.cases,self.colors):
             _run = self.cases[k]
             _da = _run.case_da
             if season:
@@ -283,8 +297,9 @@ class Cloud_Metric(object):
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
             
             # Works with percents only
-            self.__standard1Dplot(var, _da, axes, bias=bias, lat_range=lat_range, label=_run.label)
+            self.__standard1Dplot(var, _da, axes, bias=bias, lat_range=lat_range, label=_run.label,color=color,**kwargs)
             
+        axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
         fig.legend()
         
         return fig
@@ -309,9 +324,9 @@ class Cloud_Metric(object):
                     _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                     obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
                 self.__standard1Dplot(var, obs_da, ax, bias=False, lat_range=lat_range, 
-                                      label=obs_label)
+                                      label=obs_label,color='black')
             
-            for k in self.cases:
+            for k,color in zip(self.cases,self.colors):
                 _run = self.cases[k]
                 _da = _run.case_da
                 if season:
@@ -319,7 +334,7 @@ class Cloud_Metric(object):
                     _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
                 
                 self.__standard1Dplot(var, _da, ax, bias=bias,
-                                      lat_range=lat_range,label=_run.label)
+                                      lat_range=lat_range,label=_run.label,color=color)
         
         fig.legend(labels=labels)
         
@@ -339,6 +354,7 @@ class Cloud_Metric(object):
         '''Plot variable against latitude for observations and loaded model runs.'''
         obs_source, obs_label = self.__get_data_source(var)
         fig, axes = plt.subplots(nrows=1,ncols=4,figsize=[15,4])
+        fig.set_dpi(200)
     
         if bias: 
             labels = self.case_labels
@@ -348,14 +364,14 @@ class Cloud_Metric(object):
             for season,ax in zip(self.seasons,axes):
                 seas = _season_da.sel(season=season)
                 self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
-                                      bias=False, lat_range=lat_range)
+                                      bias=False, lat_range=lat_range,color='black')
             
 #             for seas,ax in zip(_season_da,axes): # jks
 #                 self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
 #                                       bias=False, lat_range=lat_range)
             
         # Iterate cases first, and then seasons within that
-        for k in self.cases:
+        for k,color in zip(self.cases,self.colors):
             _run = self.cases[k]
             _da = _run.case_da
             
@@ -364,7 +380,7 @@ class Cloud_Metric(object):
                 seas = _season_da.sel(season=season)
 #                 print(seas.season.values)
                 self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
-                                      bias=bias,lat_range=lat_range, label=_run.label)
+                                      bias=bias,lat_range=lat_range, label=_run.label,color=color)
                 
 #             for seas,ax in zip(_season_da,axes): # jks
 #                 self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
@@ -385,6 +401,7 @@ class Cloud_Metric(object):
         runs.'''
 
         fig, axes = plt.subplots(nrows=len(varlist),ncols=4,figsize=[15,3*len(varlist)])
+        fig.set_dpi(200)
         obs_source, obs_label = self.__get_data_source(varlist[0])
         
         # Preprocessing step:
@@ -396,24 +413,24 @@ class Cloud_Metric(object):
                 labels = [obs_label] + self.case_labels
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
 
-                for season,ax in zip(self.seasons,axes):
+                for season,ax in zip(self.seasons,xax):
                     seas = _season_da.sel(season=season)
                     self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
-                                          bias=False, lat_range=lat_range, label=obs_label)
+                                          bias=False, lat_range=lat_range, label=obs_label,color='black')
                 
 #                 for seas,ax in zip(_season_da,xax): #iterate over columns (seasons)
 #                     self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
 #                                           bias=False, lat_range=lat_range, label=obs_label)
             
-            for k in self.cases:
+            for k,color in zip(self.cases,self.colors):
                 _run = self.cases[k]
                 _da = _run.case_da
                 _season_da = season_mean(_da[var])
                 
-                for season,ax in zip(self.seasons,axes):
+                for season,ax in zip(self.seasons,xax):
                     seas = _season_da.sel(season=season)
                     self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
-                                          bias=bias, lat_range=lat_range, label=_run.label)
+                                          bias=bias, lat_range=lat_range, label=_run.label,color=color)
                 
 #                 for seas,ax in zip(_season_da,xax): #iterate over columns (seasons)
 #                     self.__standard1Dplot(var, seas.to_dataset(name=var),ax,
@@ -454,13 +471,27 @@ class Cloud_Metric(object):
                 obs = obs_source[var].mean(dim = ['time','lon'], skipna=True)
             
             val = val.interp_like(obs_source[var]) # quick interp fix for weird grid mismatch (bad?)
-            val = val - obs
+            val = (val - obs).sel(lat=slice(lat_lims[0],lat_lims[1]))
 
-            im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
+#             im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
+            
+            ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
+            ax.set_xticks([-1,-1*np.sqrt(3)/2,-0.5,0,0.5,np.sqrt(3)/2,1])
+            ax.set_xticklabels(['90S','60S','30S','0','30N','60N','90N'])
+            
             ax.hlines(0, lat_lims[0], lat_lims[1], colors='gray', linestyles='dashed', label='')
         else:
-            im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
+#             im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
+            val = val.sel(lat=slice(lat_lims[0],lat_lims[1]))
             
+            ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
+            ax.set_xticks([-1,-1/np.sqrt(2),-0.5,0,0.5,1/np.sqrt(2),1])
+            ax.set_xticklabels(['90S','45S','30S','0','30N','45N','90N'])
+#             ax.set_xticks([-1,-1*np.sqrt(3)/2,-0.5,0,0.5,np.sqrt(3)/2,1])
+#             ax.set_xticklabels(['90S','60S','30S','0','30N','60N','90N'])
+            
+#         ax.set_xlim([-1.1,1.1]) # weird fix??
+        ax.set_xlim([-1,1]) # weird fix??
         ax.set_ylabel('')
         ax.set_xlabel('')
         ax.set_title('')
@@ -470,7 +501,9 @@ class Cloud_Metric(object):
         '''
         General surface plot function. Calls more specific plotting functions.
         Supports projections:
-        PlateCarree, NorthPolarStereo, Mollweide, SouthPolarStereo
+        PlateCarree, NorthPolarStereo, Mollweide, SouthPolarStereo, Robinson
+        ! currently avoid Mollweide because of high-latitude bug:
+        https://github.com/SciTools/cartopy/issues/1604
         '''
                 
         # Series of comparison to select specific plotting function to use:
@@ -494,14 +527,17 @@ class Cloud_Metric(object):
         if layers:
             try: 
                 varlist = self.layer_prefixes[var]
+                self.__check_for_vars(varlist)
             except:
                 print('''Layers prefix %s not found. Select from: \n
                 %s ''' % (var, str(list(self.layer_prefixes.keys()))))
                 return None
             out = self.__layersplotwrapper(varlist, proj, bias=bias, season=season,**kwargs)
         elif seasonal:
+            self.__check_for_vars(var)
             out = self.__seasonalplotwrapper(var, proj, bias=bias,**kwargs)
         else:
+            self.__check_for_vars(var)
             out = self.__standard2Dplotwrapper(var, proj, bias=bias, season=season,**kwargs)
                 
         return out
@@ -514,21 +550,25 @@ class Cloud_Metric(object):
         if bias:
             fig, axes = sp_map(nrows=len(self.cases), ncols=1,
                            projection=projection, figsize=[15,2*(len(self.cases))])
+            fig.set_dpi(200)
             ylabels = self.case_labels
             _axes = axes
+            if len(self.cases) == 1:  # jks handle axes if not an interable
+                _axes = [axes]
             
         else:
             fig, axes = sp_map(nrows=len(self.cases)+1, ncols=1,
                            projection=projection, figsize=[15,2*(len(self.cases)+1)])
+            fig.set_dpi(200)
             ylabels = [obs_label] + self.case_labels
-            
+        
             # jks handle season
             obs_da = obs_source
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                 obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
             self.standard2Dplot(var, obs_da, axes.flat[0],
-                                projection=projection, bias=False)
+                                projection=projection, bias=False,**kwargs)
             _axes = axes.flat[1:]
         
         for ax, k in zip(_axes, self.cases):
@@ -541,23 +581,31 @@ class Cloud_Metric(object):
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
                 
             _ax, _im = self.standard2Dplot(var,_da, ax,projection=projection,
-                                           bias=bias)
+                                           bias=bias,**kwargs)
                         
         yax = axes
-        xlabels = [var]; xax = [axes[0]]
-        
+        try:
+            xlabels = [var]; xax = [axes[0]]
+        except:
+            xlabels = [var]; xax = [axes]
+            
         self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
         
-        self.share_clims(fig)
+        if not 'contour' in kwargs.keys():
+            self.share_clims(fig)
         
-        cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) # this doesn't get the right bounds
+        try:
+            cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) # this doesn't get the right bounds
+        except:
+            cbar = fig.colorbar(_im, ax=axes)
+            
         if bias:
-            cbar.set_label("Bias (Model - Observations) of %s (%s)" % (_da[var].long_name,_da[var].units), fontsize=12)
+            cbar.set_label("Bias (Model - Observations) of %s (%s)" % (_da[var].long_name,_da[var].units))
 #             cbar.set_label("Bias (%s)" % _da[var].units)
         else:
-            cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units), fontsize=12)
+            cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units))#, fontsize=12)
 
-        plt.show()
+#         plt.show()
         return fig
 
     def __layersplotwrapper(self, varlist, projection, bias=False, season=None, **kwargs):
@@ -575,6 +623,7 @@ class Cloud_Metric(object):
             fig, axes = sp_map(nrows=len(self.cases)+1, ncols=len(varlist),
                            projection=projection, figsize=[3*len(varlist),2*(len(self.cases)+1)])
             ylabels = [obs_label] + self.case_labels
+#         fig.set_dpi(100)
             
         obs_da = obs_source
         for var,varax in zip(varlist,axes.transpose()):
@@ -614,7 +663,8 @@ class Cloud_Metric(object):
         xax = axes[0,:]
         self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
 
-        self.share_clims(fig)
+        if not 'contour' in kwargs.keys():
+            self.share_clims(fig)
         plt.subplots_adjust(wspace=0.1, hspace=0.1)
         
         cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) 
@@ -633,12 +683,14 @@ class Cloud_Metric(object):
         if bias:
             fig, axes = sp_map(nrows=len(self.cases), ncols=4,
                            projection=projection, figsize=[10,2*len(self.cases)])
+#             fig.set_dpi(100)
             ylabels = self.case_labels
             _axes = axes
             
         else:
             fig, axes = sp_map(nrows=len(self.cases)+1, ncols=4,
                            projection=projection, figsize=[10,2*(len(self.cases)+1)])
+#             fig.set_dpi(100)
             ylabels = [obs_label] + self.case_labels
             
             _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
@@ -646,7 +698,7 @@ class Cloud_Metric(object):
             for season,ax in zip(self.seasons,axes[0]):
                 seas = _season_da.sel(season=season)
                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
-                                    projection=projection, bias=False)
+                                    projection=projection, bias=False,**kwargs)
                 
 #             for seas,ax in zip(_season_da,axes[0]):
 #                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
@@ -663,13 +715,14 @@ class Cloud_Metric(object):
             for season,ax in zip(self.seasons,xaxes):
                 seas = _season_da.sel(season=season)
                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
-                                projection=projection, bias=bias)
+                                projection=projection, bias=bias,**kwargs)
             
 #             for seas,ax in zip(_season_da,xaxes):
 #                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
 #                                 projection=projection, bias=bias)
 
-        self.share_clims(fig)
+        if not 'contour' in kwargs.keys():
+            self.share_clims(fig)
         
         cbar = fig.colorbar(_im, ax=axes.ravel().tolist())
         if bias:
@@ -683,7 +736,7 @@ class Cloud_Metric(object):
                 
         return fig
     
-    def standard2Dplot(self, var, da, ax, projection=None, bias=False, **kwargs):
+    def standard2Dplot(self, var, da, ax, projection=None, bias=False, contour=False, **kwargs):
         '''
         Basic workhorse plotting function. needs to handle bias and seasons
         '''
@@ -701,6 +754,19 @@ class Cloud_Metric(object):
             val = da[var].mean(dim = 'time', skipna=True).where(
                                 da['lat'] > lat_lims[0])            
         
+        standards = {'levels':20 if contour else None, 
+                     'extend':'both', 
+                     'robust':True,
+                     'add_colorbar':False,
+                     'transform':ccrs.PlateCarree(),
+                     'cmap':self.color_map if contour else 'vlag' if bias else 'viridis'} # handle 3(4) cases
+        if ('levels' not in kwargs.keys()) or np.any(kwargs['levels'] == None):
+            lvl_bool = True
+        else: lvl_bool = False
+        for i in standards: # adopt standards if the argument is unspecified
+            if i not in kwargs.keys():
+                kwargs[i] = standards[i]
+
         if bias:
             try: # get season observations if passed da is seasonally processed
                 season = val['season'].values
@@ -711,40 +777,48 @@ class Cloud_Metric(object):
                 obs = obs_source[var].mean(dim = 'time', skipna=True).where(
                                                 da['lat'] > lat_lims[0])
             obs = obs.interp_like(val) # quick interp fix for weird grid mismatch (bad.)
-#             val = val.interp_like(obs) # quick interp fix for weird grid mismatch (bad.)
 
-            val = val - obs
-    
-    
-
-#             im = val.plot(ax=ax,cmap=plt.get_cmap('bwr'),transform=ccrs.PlateCarree(),
-#                           add_colorbar=False, robust=True, **kwargs) #jks robust good?
-#             im = val.plot(ax=ax,cmap=plt.get_cmap('icefire'),transform=ccrs.PlateCarree(),
-#                           add_colorbar=False, robust=True, **kwargs) #jks robust good?
-            if 'cmap' in kwargs.keys():
-                im = val.plot(ax=ax,transform=ccrs.PlateCarree(),
-                              add_colorbar=False, robust=True, **kwargs)
-            else:
-                im = val.plot(ax=ax,cmap=plt.get_cmap('bwr'),transform=ccrs.PlateCarree(),
-                              add_colorbar=False, robust=True, **kwargs)
-                
-        else:
-            im = val.plot(ax=ax,cmap=plt.get_cmap('jet'),transform=ccrs.PlateCarree(),
-                      add_colorbar=False, robust=True, **kwargs) # robust good?
+            # Calculate global average error
+            weights = add_weights(val)['cell_weight']
+            val_avg = masked_average(val,weights=weights,dim=['lat','lon'])
+            obs_avg = masked_average(obs,weights=weights,dim=['lat','lon'])
             
-        ax.set_title('')
-#             im = val.plot(ax=ax,cmap=plt.get_cmap('jet'),transform=ccrs.PlateCarree(),
-#                       add_colorbar=False, vmin=0, vmax=100, **kwargs)
-
-
-        add_map_features(ax)
+            bias = val - obs
+            
+            # Calculate RMSE error weighted by gridarea
+            rmse = np.sqrt(masked_average(bias**2,weights=weights,dim=['lat','lon']))
+    
+            if contour:                    
+                im = ax.contourf(bias['lon'],bias['lat'],bias,**kwargs)
+                if lvl_bool:
+                    print('SPECIFY LEVELS OR SUBPLOTS MAY NOT SHARE CONTOURS')
+                    print('Levels: ', im.levels)
+            else:
+                im = bias.plot(ax=ax, **kwargs)
+            ax.set_title('Global Error: %.1f. RMS Error: %.1f' % (val_avg-obs_avg,rmse),fontsize=10)
                     
+        else:
+            weights = add_weights(val)['cell_weight']
+            val_avg = masked_average(val,weights=weights,dim=['lat','lon'])
+            if contour:
+                im = ax.contourf(val['lon'],val['lat'],val,**kwargs)
+                if lvl_bool:
+                    print('SPECIFY LEVELS OR SUBPLOTS MAY NOT SHARE CONTOURS')
+                    print('Levels: ', im.levels)
+                    
+            else:
+                im = val.plot(ax=ax,**kwargs) # robust good?
+            
+            ax.set_title('Global Average: %.1f' % val_avg,fontsize=10)
+
+        add_map_features(ax) # testing turning this off
         return ax, im
     
     def band_biases(self, var):
         '''
         Calculate the model bias with respect to observations over 10 degree(ish) latitude bands.
         '''
+        self.__check_for_vars(var)
         obs_source, obs_label = self.__get_data_source(var)
         out_dict = {}
         
@@ -787,6 +861,7 @@ class Cloud_Metric(object):
         '''
         Calculate the model bias with respect to observations over a specified latitude band.
         '''
+        self.__check_for_vars(var)
         obs_source, obs_label = self.__get_data_source(var)
         out_dict = {}
         out_list = []
@@ -890,6 +965,7 @@ class Cloud_Metric(object):
         This will create a polar plot to show the monthly evolution 
         of the cloud phase breakdown. In development.
         '''
+        self.__check_for_vars(['CLDTOT_CAL','CLDTOT_CAL_LIQ','CLDTOT_CAL_ICE','CLDTOT_CAL_UN'])
         fig = plt.figure(figsize=[6*(len(self.cases)),10],dpi=200)
 #         months = ['J','F','M','A','M','J','J', 'A','S','O','N','D'] # month initials
         # Rotate and reverse so that they read clockwise from the top
@@ -945,6 +1021,7 @@ class Cloud_Metric(object):
         '''
         Latitude plot of cloud phase components.
         '''
+        self.__check_for_vars(['CLDTOT_CAL','CLDTOT_CAL_LIQ','CLDTOT_CAL_ICE'])
         fig, axes = plt.subplots(nrows=1,ncols=len(self.cases),figsize=[15,4])
 
         obs_da = self.goccp_data
@@ -1001,6 +1078,7 @@ class Cloud_Metric(object):
 
     def plot_months_line(self, var, lat_range=[66,82], bias=False, ax=None, **kwargs):
             
+        self.__check_for_vars(var)
         if ax:
             axes = ax
             plt.sca(ax)
@@ -1084,7 +1162,9 @@ class Cloud_Metric(object):
     #         if isinstance(i, cpy.mpl.geoaxes.GeoAxesSubplot):
     # #             print(i.get_children())
             for j in i.get_children():
-                if isinstance(j, mpl.collections.QuadMesh):
+                # handle contour plots now
+#                 print(type(j))
+                if isinstance(j, mpl.collections.QuadMesh): #or isinstance(j, mpl.collections.PathCollection): 
                     qms.append(j)
 
         # Calculate global min and max values
@@ -1105,7 +1185,7 @@ class Cloud_Metric(object):
     
     def __get_data_source(self, var):
         ''' Figure out if a GOCCP or CERES-EBAF variable. Return correct dataset.'''
-        if var in self.goccp_data.data_vars:
+        if var in self.goccp_data.data_vars: # what is this
             data_source = self.goccp_data
             label = "GOCCP"
         elif var in self.ceres_data.data_vars:
@@ -1113,7 +1193,7 @@ class Cloud_Metric(object):
             label = "CERES-EBAF"
         else:
             print("Could not find variable in GOCCP or CERES-EBAF datasets.")
-            sys.exit() # bad?
+            sys.exit() # bad?Could not find variable in GOCCP or CERES-EBAF datasets
         
         return data_source, label
             
@@ -1144,6 +1224,22 @@ class Cloud_Metric(object):
         out = var_da[var].mean('lon')
             
         return out
+    
+    def __check_for_vars(self,varlist):
+        '''Check if each case has the requested variables. Add them if they are not present.''' 
+        if not isinstance(varlist, list): # convert varlist to iterable if it isn't already
+            varlist = [varlist]
+            
+        for k in self.cases:
+            _case = self.cases[k]
+            for var in varlist:
+                if not _case.case_da:
+#                     print('Adding first variable %s' % var)
+                    _case.add_tseries_var(var)
+                if not var in _case.case_da.data_vars: # variable has not been loaded
+#                     print('Adding variable %s' % var)
+                    _case.add_tseries_var(var)
+
         
 class Model_case:
     
@@ -1164,27 +1260,35 @@ class Model_case:
             self.label = self.case
             self.date, self.time, self.paramfile, self.wbf_mult, self.inp_mult = ['None','None','None','None','None']
         
-    def add_ds(self):
-        try:
-            print('Trying to load concatenated file for %s' % self.case)
-            _ds = xr.open_dataset('%s%s/%s.nc' % (self.case_dir, self.case, self.case))
-        except: # this probably wouldn't work anyway, at least on NIRD
-            print('Failed, using xr.open_mfdataset.')
-            self.geth0s() # create list of appropriate output files self.files
-            _ds = xr.open_mfdataset(self.files)#, combine='by_coords') #, chunks={'lat':10}) #chunk?
-        # Shift time-bounds to fix comparison with satellites (from Jen Kay)
-        try:
-            _ds['time'] = _ds['time_bnds'].isel(bnds=0)
-        except:
-            _ds['time'] = _ds['time_bnds'].isel(nbnd=0)
-        
-        try:
-            ds = _ds.sel(time=slice('2009-06-01', '2013-05-01')) # gets all 48 files
-        except:
-            print("Four-year format not found.")
-        ds = add_weights(ds)
+    def add_ds(self, tseries=True):
+        if os.path.exists("%s/%s/atm/proc/tseries/month_1/" % (self.case_dir,self.case)): # check for "processed tseries folder"
+            print("Processed timeseries directory found for %s. Will load data as required." % self.case)
+            self.tseries_input = True
+            self.tseries_path = "%s/%s/atm/proc/tseries/month_1/" % (self.case_dir,self.case)
+            self.case_da = None
+        else:
+            try:
+                print('Trying to load concatenated file for %s' % self.case)
+                _ds = xr.open_dataset('%s%s/%s.nc' % (self.case_dir, self.case, self.case))
+            except: # this probably wouldn't work anyway, at least on NIRD
+                print('Failed, using xr.open_mfdataset.')
+                self.geth0s() # create list of appropriate output files self.files
+                _ds = xr.open_mfdataset(self.files)#, combine='by_coords') #, chunks={'lat':10}) #chunk?
+            # Shift time-bounds to fix comparison with satellites (from Jen Kay)
+            try:
+                _ds['time'] = _ds['time_bnds'].isel(bnds=0)
+            except:
+                _ds['time'] = _ds['time_bnds'].isel(nbnd=0)
 
-        self.case_da = ds
+            try:
+                ds = _ds.sel(time=slice('0001-01-01', '0010-12-31')) # work for the AMIP 0000-0010
+    #             ds = _ds.sel(time=slice('2009-06-01', '2013-05-01')) # gets all 48 files this doesn't work for the AMIP 0000-0010
+            except:
+                print("Four-year format not found.")
+            ds = add_weights(ds)
+
+            self.case_da = ds
+            self.tseries_input = False
         
         print("%s load successfully." % self.case)
         
@@ -1192,3 +1296,23 @@ class Model_case:
         prepath = '%s%s/atm/hist/' % (self.case_dir, self.case)
         allfiles = os.listdir(prepath)
         self.files = [prepath + i for i in allfiles if "h0" in i]
+        
+    def add_tseries_var(self, var):
+        '''
+        Function adds timeseries data to the case_da attribute, creating
+        '''
+        # Get file path for variable timeseries
+        tseries_files = os.listdir(self.tseries_path)
+        key_str = ".cam.h0.%s." % var # long enough to hopefully make this a unique identifier
+        varfiles = [self.tseries_path + x for x in tseries_files if key_str in x]
+        if len(varfiles) != 1:
+            print('Not able to find unique timeseries file for %s in %s' % (var, self.label))
+            return
+        else:
+            varfile = varfiles[0]
+        if self.case_da is None:
+            # create self.case_da with var
+            self.case_da = xr.open_dataset(varfile)
+        else:
+            self.case_da = xr.merge([self.case_da, xr.open_dataset(varfile)])
+                        

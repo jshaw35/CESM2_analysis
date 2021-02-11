@@ -54,6 +54,7 @@ from collections import deque
 
 # libraries (additions from Jen)
 from pathlib import Path
+import pathlib
 import numpy.linalg as LA
 import timeit
 from cartopy import config
@@ -61,6 +62,12 @@ import scipy.stats as stats # imports stats functions https://docs.scipy.org/doc
 from cartopy.util import add_cyclic_point
 import cartopy.feature as cfeature
 import re # regular expressions
+
+# Plotting a la Kay 2015:
+import cmaps  # for NCL colormaps
+
+# For the interpolation curvilinear grids (anything on the globe!)
+import xesmf as xe
 
 def load_and_reload():
     '''

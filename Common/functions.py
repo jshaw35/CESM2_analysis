@@ -8,6 +8,8 @@ import matplotlib.path as mpath
 import cartopy.crs as ccrs
 import cartopy as cy
 
+np.seterr(divide='ignore', invalid='ignore') # Fails to remove error message.
+
 # Functions from Abisko 2019 examples
 def masked_average(xa:xr.DataArray,
                    dim=None,
@@ -81,10 +83,9 @@ def add_map_features(ax):
     '''
     Single line command for xarray plots
     '''
-    ax.coastlines()
     gl = ax.gridlines()
-    ax.add_feature(cy.feature.BORDERS);
-    gl = ax.gridlines()#draw_labels=True)
+    ax.add_feature(cfeature.COASTLINE, linewidth=0.5);
+    ax.add_feature(cfeature.BORDERS, linewidth=0.5);
     gl.xlabels_top = False
     gl.ylabels_right = False
     
@@ -322,12 +323,14 @@ def regress_1d(xdata, ydata, **kwargs):
 # Now handles NaNs (by min_count=1)
 def season_mean(ds, calendar='standard'):
     # Make a DataArray of season/year groups
-    year_season = xr.DataArray(ds.time.to_index().to_period(freq='Q-NOV').to_timestamp(how='E'),
-                               coords=[ds.time], name='year_season')
+#     year_season = xr.DataArray(ds.time.to_index().to_period(freq='Q-NOV').to_timestamp(how='E'),
+#                                coords=[ds.time], name='year_season')
 
+    
     # Make a DataArray with the number of days in each month, size = len(time)
     month_length = xr.DataArray(get_dpm(ds.time.to_index(), calendar=calendar),
                                 coords=[ds.time], name='month_length')
+
     # Calculate the weights by grouping by 'time.season'
     weights = month_length.groupby('time.season') / month_length.groupby('time.season').sum()
 
