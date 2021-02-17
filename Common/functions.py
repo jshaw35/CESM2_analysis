@@ -404,11 +404,12 @@ def share_ylims(axes):
     for ax in axes:
         ax.set_ylim([ymin,ymax])
         
-def to_png(file, filename):
+def to_png(file, filename, loc='/glade/u/home/jonahshaw/figures/'):
     '''
     Simple function for one-line saving.
+    Saves to "/glade/u/home/jonahshaw/figures" by default
     '''
-    output_dir = 'figures/'
+    output_dir = loc
     ext = 'png'
     full_path = '%s%s.%s' % (output_dir,filename,ext)
 

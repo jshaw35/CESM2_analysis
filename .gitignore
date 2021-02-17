@@ -4,3 +4,6 @@
 slurm*.out
 
 dask-worker-space/**
+
+**/__pycache__/**
+**/.ipynb_checkpoints/
