@@ -57,6 +57,7 @@ class Cloud_Metric(object):
                 self.incloud_caliop_slf = None
                 self.ct_caliop_slf = None
                 return None
+
             try:
                 self.__load_CERESEBAF()
             except:
@@ -100,14 +101,19 @@ class Cloud_Metric(object):
                      'clhcalipso_un':'CLDHGH_CAL_UN','cltcalipso_un':'CLDTOT_CAL_UN'
                     }
         self.ceres_var_dict = {
-            'toa_sw_all_mon':'FSNT','toa_lw_all_mon':'FLNT', # FSNT is wrong (needs reverse?)
-            'toa_sw_clr_t_mon':'FSNTC','toa_lw_clr_t_mon':'FLNTC', # _t_ means that it is derived from all observations and is more consistent with the model variable
-            'toa_cre_sw_mon':'SWCF','toa_cre_lw_mon':'LWCF',
-            'sfc_lw_down_all_mon':'FLDS','sfc_sw_down_all_mon':'FSDS',
-            'sfc_net_sw_all_mon':'FSNS','sfc_net_lw_all_mon':'FLNS',
-            'sfc_net_lw_clr_t_mon':'FLNSC','sfc_net_sw_clr_t_mon':'FSNSC' # The longwave needs to be reversed
-#             'toa_net_all_mon':'FNNTOA','toa_net_clr_c_mon':'FNNTOAC'
+            'toa_sw_all_mon':'FSNT','toa_lw_all_mon':'FLNT', # FSNT is wrong (both sign and magnitude)
+            'toa_sw_clr_c_mon':'FSNTC','toa_lw_clr_c_mon':'FLNTC', # _c_ means that it is just from clear footprints
+            'cldtau_total_day_mon':'CLDTAU','solar_mon':'SOLIN',
         }
+#             'toa_sw_clr_t_mon':'FSNTC','toa_lw_clr_t_mon':'FLNTC', # _t_ means that it is derived from all observations and is more consistent with the model variable
+#             'toa_cre_sw_mon':'SWCF','toa_cre_lw_mon':'LWCF',
+# CERES variables without CAM6 analogs:
+    # toa_net_all_mon
+    # toa_net_clr_c_mon
+    # cldarea_total_daynight_mon
+    # cldpress_total_daynight_mon
+    # cldtemp_total_daynight_mon
+            
         self.lat_bounds = [[-82,-70],[-70,-60],[-60,-50],[-50,-40],[-40,-30],
               [-30,-20],[-20,-10],[-10,0],[0,10],[10,20],[20,30],
               [30,40],[40,50],[50,60],[60,70],[70,82]]
@@ -131,6 +137,11 @@ class Cloud_Metric(object):
         '''
         print('Loading GOCCP data...', end = '')
         
+        processed_path = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/amip_processed.nc'
+        if os.path.exists(processed_path):
+            self.goccp_data = xr.open_dataset(processed_path)
+            print('done.')
+            return
 #         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_interpolation/'
         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/'
         #'/nird/home/jonahks/p/jonahks/GOCCP_data/'
@@ -203,15 +214,20 @@ class Cloud_Metric(object):
         Load interpolated CERES-EBAF data and rename variables for easier comparison/incorporation.
         '''
         print('Loading CERES-EBAF fluxes...', end = '')
-        _ceres_data = xr.open_dataset('CERES_EBAF/CERES_EBAF_SRFFLX_CRE_2X2.nc')
-#         _ceres_data = xr.open_dataset('CERES_EBAF/CERES_EBAF_FLX_CRE_2X2.nc')
-        _ceres_data = _ceres_data.sel(time=slice('2009-06-01', '2013-05-31'))
+        _ceres_data = xr.open_dataset('/glade/u/home/jonahshaw/obs/CERES_EBAF/CERES_EBAF-TOA_Ed4.1_Subset_200003-202002.nc')
+        _ceres_data = _ceres_data.sel(time=slice('2006-01-01', '2015-12-31')) # Use AMIP by default
         _ceres_data = add_weights(_ceres_data)
         # Flip FLNSC so it matches model convention (net-LW is down, net-SW is up)
-        _ceres_data['sfc_net_lw_clr_t_mon'] = -1*_ceres_data['sfc_net_lw_clr_t_mon']
+#         _ceres_data['sfc_net_lw_clr_t_mon'] = -1*_ceres_data['sfc_net_lw_clr_t_mon']
         
+        # Derive Cloud Radiative Effect Variables
+        _ceres_data['SWCF'] = (_ceres_data['toa_sw_clr_c_mon'] - _ceres_data['toa_sw_all_mon']).assign_attrs(
+            {'units': 'W/m2','long_name': 'Shortwave cloud forcing'})
+        _ceres_data['LWCF'] = (_ceres_data['toa_lw_clr_c_mon'] - _ceres_data['toa_lw_all_mon']).assign_attrs(
+            {'units': 'W/m2','long_name': 'Longwave cloud forcing'})
         # Rename variables so they will match standard CAM variables names and index correctly
         self.ceres_data = _ceres_data.rename(self.ceres_var_dict)
+
         print('done.')
         
     def add_case(self, case, path=None, label=None): # Dictionary can be overwritten
@@ -542,7 +558,7 @@ class Cloud_Metric(object):
                 
         return out
         
-    def __standard2Dplotwrapper(self, var, projection, bias=False, season=None, **kwargs):
+    def __standard2Dplotwrapper(self, var, projection, bias=False, season=None, label=True, **kwargs):
         '''
         Create subplots object and iterate over cases to plot with correct projection, etc.
         '''
@@ -552,26 +568,42 @@ class Cloud_Metric(object):
                            projection=projection, figsize=[15,2*(len(self.cases))])
             fig.set_dpi(200)
             ylabels = self.case_labels
-            _axes = axes
+            case_axes = axes
             if len(self.cases) == 1:  # jks handle axes if not an interable
-                _axes = [axes]
+                case_axes = [axes]
             
         else:
             fig, axes = sp_map(nrows=len(self.cases)+1, ncols=1,
                            projection=projection, figsize=[15,2*(len(self.cases)+1)])
             fig.set_dpi(200)
             ylabels = [obs_label] + self.case_labels
+            if len(self.cases) == 0:  # jks handle axes if not an interable
+                axes = np.array([axes])
+                case_axes = []
+            else:
+#             _axes = axes if len(self.cases) == 0 else axes.flat[1:]
+#             if len(self.cases) == 0: _axes = axes
+                case_axes = axes.flat[1:]
         
+        if 'ax' in kwargs.keys(): # use user supplied axes, must be of appropriate size and just a list
+            if bias:
+                case_axes = kwargs['ax']
+            else:
+                case_axes = kwargs['ax'][1:]
+                axes = np.array(kwargs['ax'])
+            del kwargs['ax']
+        
+        if not bias: # weird re-org here
             # jks handle season
-            obs_da = obs_source
+            _da = obs_source
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
-                obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
-            self.standard2Dplot(var, obs_da, axes.flat[0],
+                _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
+            _ax,_im = self.standard2Dplot(var, _da, axes.flat[0],
                                 projection=projection, bias=False,**kwargs)
-            _axes = axes.flat[1:]
+#             _axes = axes.flat[1:]
         
-        for ax, k in zip(_axes, self.cases):
+        for ax, k in zip(case_axes, self.cases):
             _run = self.cases[k]
             _da = _run.case_da
             
@@ -588,25 +620,27 @@ class Cloud_Metric(object):
             xlabels = [var]; xax = [axes[0]]
         except:
             xlabels = [var]; xax = [axes]
-            
-        self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
+        if label:
+            self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
         
         if not 'contour' in kwargs.keys():
             self.share_clims(fig)
         
-        try:
-            cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) # this doesn't get the right bounds
-        except:
-            cbar = fig.colorbar(_im, ax=axes)
+        if 'add_colorbar' in kwargs.keys():
+            if kwargs['add_colorbar']:
+                try:
+                    cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) # this doesn't get the right bounds
+                except:
+                    cbar = fig.colorbar(_im, ax=axes)
             
-        if bias:
-            cbar.set_label("Bias (Model - Observations) of %s (%s)" % (_da[var].long_name,_da[var].units))
-#             cbar.set_label("Bias (%s)" % _da[var].units)
-        else:
-            cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units))#, fontsize=12)
+                if bias:
+                    cbar.set_label("Bias (Model - Observations) of %s (%s)" % (_da[var].long_name,_da[var].units))
+        #             cbar.set_label("Bias (%s)" % _da[var].units)
+                else:
+                    cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units))#, fontsize=12)
 
 #         plt.show()
-        return fig
+        return fig, _im
 
     def __layersplotwrapper(self, varlist, projection, bias=False, season=None, **kwargs):
         '''
@@ -775,7 +809,7 @@ class Cloud_Metric(object):
 
             except:
                 obs = obs_source[var].mean(dim = 'time', skipna=True).where(
-                                                da['lat'] > lat_lims[0])
+                                                obs_source['lat'] > lat_lims[0]) # obs_source was da, not sure why
             obs = obs.interp_like(val) # quick interp fix for weird grid mismatch (bad.)
 
             # Calculate global average error
@@ -788,7 +822,7 @@ class Cloud_Metric(object):
             # Calculate RMSE error weighted by gridarea
             rmse = np.sqrt(masked_average(bias**2,weights=weights,dim=['lat','lon']))
     
-            if contour:                    
+            if contour:
                 im = ax.contourf(bias['lon'],bias['lat'],bias,**kwargs)
                 if lvl_bool:
                     print('SPECIFY LEVELS OR SUBPLOTS MAY NOT SHARE CONTOURS')
@@ -808,7 +842,6 @@ class Cloud_Metric(object):
                     
             else:
                 im = val.plot(ax=ax,**kwargs) # robust good?
-            
             ax.set_title('Global Average: %.1f' % val_avg,fontsize=10)
 
         add_map_features(ax) # testing turning this off
