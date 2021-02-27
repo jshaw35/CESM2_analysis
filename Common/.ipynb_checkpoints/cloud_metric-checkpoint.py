@@ -57,12 +57,31 @@ class Cloud_Metric(object):
                 self.incloud_caliop_slf = None
                 self.ct_caliop_slf = None
                 return None
+
             try:
                 self.__load_CERESEBAF()
             except:
                 print('Failed to load CERES-EBAF data.')
                 self.ceres_data = None
                 
+            try:
+                self.__load_ISCCP()
+            except:
+                print('Failed to load ISCCP data.')
+                self.isccp_data = None
+                
+            try:
+                self.__load_MISR()
+            except:
+                print('Failed to load MISR data.')
+                self.MISR_data = None
+                
+            try:
+                self.__load_MODIS()
+            except:
+                print('Failed to load MODIS data.')
+                self.modis_data = None
+    
     
     def __addlistsanddicts(self):
         '''
@@ -100,14 +119,50 @@ class Cloud_Metric(object):
                      'clhcalipso_un':'CLDHGH_CAL_UN','cltcalipso_un':'CLDTOT_CAL_UN'
                     }
         self.ceres_var_dict = {
-            'toa_sw_all_mon':'FSNT','toa_lw_all_mon':'FLNT', # FSNT is wrong (needs reverse?)
-            'toa_sw_clr_t_mon':'FSNTC','toa_lw_clr_t_mon':'FLNTC', # _t_ means that it is derived from all observations and is more consistent with the model variable
-            'toa_cre_sw_mon':'SWCF','toa_cre_lw_mon':'LWCF',
-            'sfc_lw_down_all_mon':'FLDS','sfc_sw_down_all_mon':'FSDS',
-            'sfc_net_sw_all_mon':'FSNS','sfc_net_lw_all_mon':'FLNS',
-            'sfc_net_lw_clr_t_mon':'FLNSC','sfc_net_sw_clr_t_mon':'FSNSC' # The longwave needs to be reversed
-#             'toa_net_all_mon':'FNNTOA','toa_net_clr_c_mon':'FNNTOAC'
+            'toa_sw_all_mon':'FSNT','toa_lw_all_mon':'FLNT', # FSNT is wrong (both sign and magnitude)
+            'toa_sw_clr_c_mon':'FSNTC','toa_lw_clr_c_mon':'FLNTC', # _c_ means that it is just from clear footprints
+            'cldtau_total_day_mon':'CLDTAU','solar_mon':'SOLIN',
         }
+#             'toa_sw_clr_t_mon':'FSNTC','toa_lw_clr_t_mon':'FLNTC', # _t_ means that it is derived from all observations and is more consistent with the model variable
+#             'toa_cre_sw_mon':'SWCF','toa_cre_lw_mon':'LWCF',
+# CERES variables without CAM6 analogs:
+    # toa_net_all_mon
+    # toa_net_clr_c_mon
+    # cldarea_total_daynight_mon
+    # cldpress_total_daynight_mon
+    # cldtemp_total_daynight_mon
+    
+        self.isccp_var_dict = {
+            'cltisccp':'CLDTOT_ISCCP',
+        }
+            
+        self.modis_vars_dict = {
+            'Cloud_Fraction_Retrieval_Total_Mean':'CLTMODIS',
+            'Cloud_Fraction_Retrieval_Low_Mean':'CLLMODIS',
+            'Cloud_Fraction_Retrieval_Mid_Mean':'CLMMODIS',
+            'Cloud_Fraction_Retrieval_High_Mean':'CLHMODIS',
+            'Cloud_Fraction_Retrieval_Liquid_Mean':'CLWMODIS',
+            'Cloud_Fraction_Retrieval_Ice_Mean':'CLIMODIS',
+            'Optical_Thickness_vs_Cloud_Top_Pressure':'CLMODIS',
+            'Liquid_Path_Mean':'LWPMODIS',
+            'Ice_Path_Mean':'IWPMODIS',
+            'Cloud_Optical_Thickness_Liquid_Mean':'TAUWMODIS',
+            'Cloud_Optical_Thickness_Liquid_MeanLog10':'TAUWLOGMODIS',
+            'Cloud_Optical_Thickness_Ice_MeanLog10':'TAUILOGMODIS',
+            'Cloud_Optical_Thickness_Ice_Mean':'TAUIMODIS',
+            'Cloud_Optical_Thickness_Total_Mean':'TAUTMODIS',
+            'Cloud_Optical_Thickness_Total_MeanLog10':'TAUTLOGMODIS',
+            'Cloud_Top_Pressure_Total_Mean':'PCTMODIS',
+            'Cloud_Particle_Size_Liquid_Mean':'REFFCLWMODIS',
+            'Cloud_Particle_Size_Ice_Mean':'REFFCLIMODIS',
+            'Cloud_Optical_Thickness':'cosp_tau_modis',
+            'Cloud_Top_Pressure':'cosp_prs',
+        }
+        
+        self.modis_cloud_fracs = ['CLTMODIS','CLLMODIS','CLMMODIS',
+                                  'CLHMODIS','CLWMODIS','CLIMODIS',
+                                  'CLMODIS']
+            
         self.lat_bounds = [[-82,-70],[-70,-60],[-60,-50],[-50,-40],[-40,-30],
               [-30,-20],[-20,-10],[-10,0],[0,10],[10,20],[20,30],
               [30,40],[40,50],[50,60],[60,70],[70,82]]
@@ -131,6 +186,11 @@ class Cloud_Metric(object):
         '''
         print('Loading GOCCP data...', end = '')
         
+        processed_path = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/amip_processed.nc'
+        if os.path.exists(processed_path):
+            self.goccp_data = xr.open_dataset(processed_path)
+            print('done.')
+            return
 #         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_interpolation/'
         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/'
         #'/nird/home/jonahks/p/jonahks/GOCCP_data/'
@@ -203,16 +263,84 @@ class Cloud_Metric(object):
         Load interpolated CERES-EBAF data and rename variables for easier comparison/incorporation.
         '''
         print('Loading CERES-EBAF fluxes...', end = '')
-        _ceres_data = xr.open_dataset('CERES_EBAF/CERES_EBAF_SRFFLX_CRE_2X2.nc')
-#         _ceres_data = xr.open_dataset('CERES_EBAF/CERES_EBAF_FLX_CRE_2X2.nc')
-        _ceres_data = _ceres_data.sel(time=slice('2009-06-01', '2013-05-31'))
+        _ceres_data = xr.open_dataset('/glade/u/home/jonahshaw/obs/CERES_EBAF/CERES_EBAF-TOA_Ed4.1_Subset_200003-202002.nc')
+        _ceres_data = _ceres_data.sel(time=slice('2006-01-01', '2015-12-31')) # Use AMIP by default
         _ceres_data = add_weights(_ceres_data)
         # Flip FLNSC so it matches model convention (net-LW is down, net-SW is up)
-        _ceres_data['sfc_net_lw_clr_t_mon'] = -1*_ceres_data['sfc_net_lw_clr_t_mon']
+#         _ceres_data['sfc_net_lw_clr_t_mon'] = -1*_ceres_data['sfc_net_lw_clr_t_mon']
         
+        # Derive Cloud Radiative Effect Variables
+        _ceres_data['SWCF'] = (_ceres_data['toa_sw_clr_c_mon'] - _ceres_data['toa_sw_all_mon']).assign_attrs(
+            {'units': 'W/m2','long_name': 'Shortwave cloud forcing'})
+        _ceres_data['LWCF'] = (_ceres_data['toa_lw_clr_c_mon'] - _ceres_data['toa_lw_all_mon']).assign_attrs(
+            {'units': 'W/m2','long_name': 'Longwave cloud forcing'})
         # Rename variables so they will match standard CAM variables names and index correctly
         self.ceres_data = _ceres_data.rename(self.ceres_var_dict)
+
         print('done.')
+        
+    def __load_ISCCP(self):
+        '''
+        Load ISCCP cloud total processed for COSP ISCCP simulator.
+        '''
+        print('Loading ISCCP cloud total...', end = '')
+        _isccp_data = xr.open_dataset('/glade/u/home/jonahshaw/w/obs/ISCCP/cltisccp_198307-200806.nc')
+        _isccp_data = _isccp_data.rename(self.isccp_var_dict)
+        
+        self.isccp_data = _isccp_data
+        
+        print('done.')
+        
+    def __load_MISR(self):
+        '''
+        Load monthly averaged MISR cldtau-cldheight histograms from 2000/04-2020/05.
+        '''
+        print('Loading MISR cloud histograms...', end = '')
+        
+        misr_dir = '/glade/work/jonahshaw/obs/MISR/interp_0.9x1.25/'
+        misr_monthly_file = 'clMISR_obs4MIPs_MISR_V7_monthly_averages.nc'
+        misr_monthly = xr.open_dataset('%s/%s' % (misr_dir,misr_monthly_file))
+        
+        misr_monthly = misr_monthly.assign_coords({'cth':misr_monthly.cth*1e-3}) # convert cloudtop height to km to match COSP
+        misr_monthly['cth'] = misr_monthly['cth'].assign_attrs({'units' : 'km'}) # rename variable to km
+
+        misr_monthly = misr_monthly.rename({'clMISR':'CLD_MISR','tau':'cosp_tau','cth':'cosp_htmisr'})
+
+        # Assign fake time attributes so it will index correctly with the metric
+        misr_monthly = misr_monthly.rename({'month':'time'})
+        misr_monthly['time'].attrs['calendar'] = '360_day'
+        misr_monthly['time'].attrs['units'] = "months since 1999-12-01"
+
+        misr_monthly = xr.decode_cf(misr_monthly)
+        
+        self.misr_data = misr_monthly
+        
+        print('done.')
+        
+    def __load_MODIS(self):
+        '''
+        Load MODIS cldtau-cldheight histogram climatology from 2002/07 to 2010/07.
+        '''
+        
+        print('Loading MODIS cloud histograms...', end = '')
+        
+        modis_dir = '/glade/work/jonahshaw/obs/MODIS/'
+        modis_climo_file = 'MCD03_M3_NC_200207to201007.V01.nc'
+        modis_climo = xr.open_dataset('%s/%s' % (modis_dir,modis_climo_file))
+        
+        # convert cloudtop pressure from Pa to mb to match COSP
+        modis_climo = modis_climo.assign_coords({'Cloud_Top_Pressure':modis_climo.Cloud_Top_Pressure*1e-2}) 
+        modis_climo['Cloud_Top_Pressure'] = modis_climo['Cloud_Top_Pressure'].assign_attrs({'units' : 'mb'}) # rename variable to km
+        
+        modis_climo = modis_climo.rename(self.modis_vars_dict)
+        
+        for i in self.modis_cloud_fracs: # Convert from cloud fraction to cloud percent
+            modis_climo[i] = 100*modis_climo[i]
+        
+        self.modis_data = modis_climo
+        
+        print('done.')
+        
         
     def add_case(self, case, path=None, label=None): # Dictionary can be overwritten
         # Add a Model_case object to the cases dictionary
@@ -299,7 +427,10 @@ class Cloud_Metric(object):
             # Works with percents only
             self.__standard1Dplot(var, _da, axes, bias=bias, lat_range=lat_range, label=_run.label,color=color,**kwargs)
             
-        axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
+        try: 
+            axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
+        except:
+            axes.set_ylabel('%s' % (var))
         fig.legend()
         
         return fig
@@ -542,7 +673,7 @@ class Cloud_Metric(object):
                 
         return out
         
-    def __standard2Dplotwrapper(self, var, projection, bias=False, season=None, **kwargs):
+    def __standard2Dplotwrapper(self, var, projection, bias=False, season=None, label=True, **kwargs):
         '''
         Create subplots object and iterate over cases to plot with correct projection, etc.
         '''
@@ -552,26 +683,42 @@ class Cloud_Metric(object):
                            projection=projection, figsize=[15,2*(len(self.cases))])
             fig.set_dpi(200)
             ylabels = self.case_labels
-            _axes = axes
+            case_axes = axes
             if len(self.cases) == 1:  # jks handle axes if not an interable
-                _axes = [axes]
+                case_axes = [axes]
             
         else:
             fig, axes = sp_map(nrows=len(self.cases)+1, ncols=1,
                            projection=projection, figsize=[15,2*(len(self.cases)+1)])
             fig.set_dpi(200)
             ylabels = [obs_label] + self.case_labels
+            if len(self.cases) == 0:  # jks handle axes if not an interable
+                axes = np.array([axes])
+                case_axes = []
+            else:
+#             _axes = axes if len(self.cases) == 0 else axes.flat[1:]
+#             if len(self.cases) == 0: _axes = axes
+                case_axes = axes.flat[1:]
         
+        if 'ax' in kwargs.keys(): # use user supplied axes, must be of appropriate size and just a list
+            if bias:
+                case_axes = kwargs['ax']
+            else:
+                case_axes = kwargs['ax'][1:]
+                axes = np.array(kwargs['ax'])
+            del kwargs['ax']
+        
+        if not bias: # weird re-org here
             # jks handle season
-            obs_da = obs_source
+            _da = obs_source
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
-                obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
-            self.standard2Dplot(var, obs_da, axes.flat[0],
+                _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
+            _ax,_im = self.standard2Dplot(var, _da, axes.flat[0],
                                 projection=projection, bias=False,**kwargs)
-            _axes = axes.flat[1:]
+#             _axes = axes.flat[1:]
         
-        for ax, k in zip(_axes, self.cases):
+        for ax, k in zip(case_axes, self.cases):
             _run = self.cases[k]
             _da = _run.case_da
             
@@ -588,25 +735,27 @@ class Cloud_Metric(object):
             xlabels = [var]; xax = [axes[0]]
         except:
             xlabels = [var]; xax = [axes]
-            
-        self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
+        if label:
+            self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
         
         if not 'contour' in kwargs.keys():
             self.share_clims(fig)
         
-        try:
-            cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) # this doesn't get the right bounds
-        except:
-            cbar = fig.colorbar(_im, ax=axes)
+        if 'add_colorbar' in kwargs.keys():
+            if kwargs['add_colorbar']:
+                try:
+                    cbar = fig.colorbar(_im, ax=axes.ravel().tolist()) # this doesn't get the right bounds
+                except:
+                    cbar = fig.colorbar(_im, ax=axes)
             
-        if bias:
-            cbar.set_label("Bias (Model - Observations) of %s (%s)" % (_da[var].long_name,_da[var].units))
-#             cbar.set_label("Bias (%s)" % _da[var].units)
-        else:
-            cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units))#, fontsize=12)
+                if bias:
+                    cbar.set_label("Bias (Model - Observations) of %s (%s)" % (_da[var].long_name,_da[var].units))
+        #             cbar.set_label("Bias (%s)" % _da[var].units)
+                else:
+                    cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units))#, fontsize=12)
 
 #         plt.show()
-        return fig
+        return fig, _im
 
     def __layersplotwrapper(self, varlist, projection, bias=False, season=None, **kwargs):
         '''
@@ -748,7 +897,7 @@ class Cloud_Metric(object):
         if projection == ccrs.SouthPolarStereo(): 
             lat_lims = [-90,-60]
             polarCentral_set_latlim(lat_lims, ax)
-        if 'time' not in da.dims: # catches a bug with seasonal averages
+        if 'time' not in da[var].dims: # catches a bug with seasonal averages
             val = da[var].where(da['lat'] > lat_lims[0])
         else:
             val = da[var].mean(dim = 'time', skipna=True).where(
@@ -766,7 +915,7 @@ class Cloud_Metric(object):
         for i in standards: # adopt standards if the argument is unspecified
             if i not in kwargs.keys():
                 kwargs[i] = standards[i]
-
+                
         if bias:
             try: # get season observations if passed da is seasonally processed
                 season = val['season'].values
@@ -774,8 +923,11 @@ class Cloud_Metric(object):
                                   (da['lat'] > lat_lims[0]) & (np.absolute(obs_source['lat'])<82))
 
             except:
-                obs = obs_source[var].mean(dim = 'time', skipna=True).where(
-                                                da['lat'] > lat_lims[0])
+                if 'time' in obs_source[var].dims:
+                    obs = obs_source[var].mean(dim = 'time', skipna=True).where(
+                                                obs_source['lat'] > lat_lims[0]) # obs_source was da, not sure why
+                else:
+                    obs = obs_source[var].where(obs_source['lat'] > lat_lims[0])
             obs = obs.interp_like(val) # quick interp fix for weird grid mismatch (bad.)
 
             # Calculate global average error
@@ -788,14 +940,14 @@ class Cloud_Metric(object):
             # Calculate RMSE error weighted by gridarea
             rmse = np.sqrt(masked_average(bias**2,weights=weights,dim=['lat','lon']))
     
-            if contour:                    
+            if contour:
                 im = ax.contourf(bias['lon'],bias['lat'],bias,**kwargs)
                 if lvl_bool:
                     print('SPECIFY LEVELS OR SUBPLOTS MAY NOT SHARE CONTOURS')
                     print('Levels: ', im.levels)
             else:
                 im = bias.plot(ax=ax, **kwargs)
-            ax.set_title('Global Error: %.1f. RMS Error: %.1f' % (val_avg-obs_avg,rmse),fontsize=10)
+            ax.set_title('Global Error: %.0f. RMS Error: %.0f' % (val_avg-obs_avg,rmse),fontsize=10)
                     
         else:
             weights = add_weights(val)['cell_weight']
@@ -808,8 +960,7 @@ class Cloud_Metric(object):
                     
             else:
                 im = val.plot(ax=ax,**kwargs) # robust good?
-            
-            ax.set_title('Global Average: %.1f' % val_avg,fontsize=10)
+            ax.set_title('Global Average: %.0f' % val_avg,fontsize=10)
 
         add_map_features(ax) # testing turning this off
         return ax, im
@@ -1191,9 +1342,18 @@ class Cloud_Metric(object):
         elif var in self.ceres_data.data_vars:
             data_source = self.ceres_data
             label = "CERES-EBAF"
+        elif var in self.isccp_data.data_vars:
+            data_source = self.isccp_data
+            label = "ISCCP"     
+        elif var in self.misr_data.data_vars:
+            data_source = self.misr_data
+            label = "MISR"
+        elif var in self.modis_data.data_vars:
+            data_source = self.modis_data
+            label = "MODIS"
         else:
             print("Could not find variable in GOCCP or CERES-EBAF datasets.")
-            sys.exit() # bad?Could not find variable in GOCCP or CERES-EBAF datasets
+            sys.exit() # bad?
         
         return data_source, label
             
@@ -1239,6 +1399,10 @@ class Cloud_Metric(object):
                 if not var in _case.case_da.data_vars: # variable has not been loaded
 #                     print('Adding variable %s' % var)
                     _case.add_tseries_var(var)
+    
+    def load_vars(self,varlist):
+        '''Wrapper for internal function __check_for_vars'''
+        self.__check_for_vars(varlist)
 
         
 class Model_case:

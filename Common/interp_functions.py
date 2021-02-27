@@ -3,6 +3,14 @@
 
 ##################################################
 
+# from Common.imports import *
+
+import xarray as xr
+import numpy as np
+import xesmf as xe
+
+##################################################
+
 def interp_like2D(ds_in, target=None, method='bilinear',verbose=False,regridder=None):
     '''
     Wrapper function for xESMF regridder object.
@@ -90,7 +98,7 @@ def get_horiz_vars(ds_in,verbose=False):
             _horiz_coords = get_horiz_coords(ds[i])
             if False in _horiz_coords:
                 if verbose: print('Will not interpolate "%s", horizontal coordinates not found.' % i)
-                drops[i] = raw_goccp[i] # Save variable so it isn't lost to append later.
+                drops[i] = ds[i] # Save variable so it isn't lost to append later.
                 ds = ds.drop(i)
             else: # This is where I would transpose if necessary, but that is not yet an issue.
                 pass

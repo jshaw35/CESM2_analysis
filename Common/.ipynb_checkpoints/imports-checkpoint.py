@@ -69,6 +69,9 @@ import cmaps  # for NCL colormaps
 # For the interpolation curvilinear grids (anything on the globe!)
 import xesmf as xe
 
+# For running command line operations through python
+from subprocess import run
+
 def load_and_reload():
     '''
     the code below automatically reload modules that

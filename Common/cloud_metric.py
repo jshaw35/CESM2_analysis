@@ -64,6 +64,24 @@ class Cloud_Metric(object):
                 print('Failed to load CERES-EBAF data.')
                 self.ceres_data = None
                 
+            try:
+                self.__load_ISCCP()
+            except:
+                print('Failed to load ISCCP data.')
+                self.isccp_data = None
+                
+            try:
+                self.__load_MISR()
+            except:
+                print('Failed to load MISR data.')
+                self.MISR_data = None
+                
+            try:
+                self.__load_MODIS()
+            except:
+                print('Failed to load MODIS data.')
+                self.modis_data = None
+    
     
     def __addlistsanddicts(self):
         '''
@@ -113,6 +131,37 @@ class Cloud_Metric(object):
     # cldarea_total_daynight_mon
     # cldpress_total_daynight_mon
     # cldtemp_total_daynight_mon
+    
+        self.isccp_var_dict = {
+            'cltisccp':'CLDTOT_ISCCP',
+        }
+            
+        self.modis_vars_dict = {
+            'Cloud_Fraction_Retrieval_Total_Mean':'CLTMODIS',
+            'Cloud_Fraction_Retrieval_Low_Mean':'CLLMODIS',
+            'Cloud_Fraction_Retrieval_Mid_Mean':'CLMMODIS',
+            'Cloud_Fraction_Retrieval_High_Mean':'CLHMODIS',
+            'Cloud_Fraction_Retrieval_Liquid_Mean':'CLWMODIS',
+            'Cloud_Fraction_Retrieval_Ice_Mean':'CLIMODIS',
+            'Optical_Thickness_vs_Cloud_Top_Pressure':'CLMODIS',
+            'Liquid_Path_Mean':'LWPMODIS',
+            'Ice_Path_Mean':'IWPMODIS',
+            'Cloud_Optical_Thickness_Liquid_Mean':'TAUWMODIS',
+            'Cloud_Optical_Thickness_Liquid_MeanLog10':'TAUWLOGMODIS',
+            'Cloud_Optical_Thickness_Ice_MeanLog10':'TAUILOGMODIS',
+            'Cloud_Optical_Thickness_Ice_Mean':'TAUIMODIS',
+            'Cloud_Optical_Thickness_Total_Mean':'TAUTMODIS',
+            'Cloud_Optical_Thickness_Total_MeanLog10':'TAUTLOGMODIS',
+            'Cloud_Top_Pressure_Total_Mean':'PCTMODIS',
+            'Cloud_Particle_Size_Liquid_Mean':'REFFCLWMODIS',
+            'Cloud_Particle_Size_Ice_Mean':'REFFCLIMODIS',
+            'Cloud_Optical_Thickness':'cosp_tau_modis',
+            'Cloud_Top_Pressure':'cosp_prs',
+        }
+        
+        self.modis_cloud_fracs = ['CLTMODIS','CLLMODIS','CLMMODIS',
+                                  'CLHMODIS','CLWMODIS','CLIMODIS',
+                                  'CLMODIS']
             
         self.lat_bounds = [[-82,-70],[-70,-60],[-60,-50],[-50,-40],[-40,-30],
               [-30,-20],[-20,-10],[-10,0],[0,10],[10,20],[20,30],
@@ -230,6 +279,69 @@ class Cloud_Metric(object):
 
         print('done.')
         
+    def __load_ISCCP(self):
+        '''
+        Load ISCCP cloud total processed for COSP ISCCP simulator.
+        '''
+        print('Loading ISCCP cloud total...', end = '')
+        _isccp_data = xr.open_dataset('/glade/u/home/jonahshaw/w/obs/ISCCP/cltisccp_198307-200806.nc')
+        _isccp_data = _isccp_data.rename(self.isccp_var_dict)
+        
+        self.isccp_data = _isccp_data
+        
+        print('done.')
+        
+    def __load_MISR(self):
+        '''
+        Load monthly averaged MISR cldtau-cldheight histograms from 2000/04-2020/05.
+        '''
+        print('Loading MISR cloud histograms...', end = '')
+        
+        misr_dir = '/glade/work/jonahshaw/obs/MISR/interp_0.9x1.25/'
+        misr_monthly_file = 'clMISR_obs4MIPs_MISR_V7_monthly_averages.nc'
+        misr_monthly = xr.open_dataset('%s/%s' % (misr_dir,misr_monthly_file))
+        
+        misr_monthly = misr_monthly.assign_coords({'cth':misr_monthly.cth*1e-3}) # convert cloudtop height to km to match COSP
+        misr_monthly['cth'] = misr_monthly['cth'].assign_attrs({'units' : 'km'}) # rename variable to km
+
+        misr_monthly = misr_monthly.rename({'clMISR':'CLD_MISR','tau':'cosp_tau','cth':'cosp_htmisr'})
+
+        # Assign fake time attributes so it will index correctly with the metric
+        misr_monthly = misr_monthly.rename({'month':'time'})
+        misr_monthly['time'].attrs['calendar'] = '360_day'
+        misr_monthly['time'].attrs['units'] = "months since 1999-12-01"
+
+        misr_monthly = xr.decode_cf(misr_monthly)
+        
+        self.misr_data = misr_monthly
+        
+        print('done.')
+        
+    def __load_MODIS(self):
+        '''
+        Load MODIS cldtau-cldheight histogram climatology from 2002/07 to 2010/07.
+        '''
+        
+        print('Loading MODIS cloud histograms...', end = '')
+        
+        modis_dir = '/glade/work/jonahshaw/obs/MODIS/'
+        modis_climo_file = 'MCD03_M3_NC_200207to201007.V01.nc'
+        modis_climo = xr.open_dataset('%s/%s' % (modis_dir,modis_climo_file))
+        
+        # convert cloudtop pressure from Pa to mb to match COSP
+        modis_climo = modis_climo.assign_coords({'Cloud_Top_Pressure':modis_climo.Cloud_Top_Pressure*1e-2}) 
+        modis_climo['Cloud_Top_Pressure'] = modis_climo['Cloud_Top_Pressure'].assign_attrs({'units' : 'mb'}) # rename variable to km
+        
+        modis_climo = modis_climo.rename(self.modis_vars_dict)
+        
+        for i in self.modis_cloud_fracs: # Convert from cloud fraction to cloud percent
+            modis_climo[i] = 100*modis_climo[i]
+        
+        self.modis_data = modis_climo
+        
+        print('done.')
+        
+        
     def add_case(self, case, path=None, label=None): # Dictionary can be overwritten
         # Add a Model_case object to the cases dictionary
         if path == None:
@@ -315,7 +427,10 @@ class Cloud_Metric(object):
             # Works with percents only
             self.__standard1Dplot(var, _da, axes, bias=bias, lat_range=lat_range, label=_run.label,color=color,**kwargs)
             
-        axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
+        try: 
+            axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
+        except:
+            axes.set_ylabel('%s' % (var))
         fig.legend()
         
         return fig
@@ -782,7 +897,7 @@ class Cloud_Metric(object):
         if projection == ccrs.SouthPolarStereo(): 
             lat_lims = [-90,-60]
             polarCentral_set_latlim(lat_lims, ax)
-        if 'time' not in da.dims: # catches a bug with seasonal averages
+        if 'time' not in da[var].dims: # catches a bug with seasonal averages
             val = da[var].where(da['lat'] > lat_lims[0])
         else:
             val = da[var].mean(dim = 'time', skipna=True).where(
@@ -800,7 +915,7 @@ class Cloud_Metric(object):
         for i in standards: # adopt standards if the argument is unspecified
             if i not in kwargs.keys():
                 kwargs[i] = standards[i]
-
+                
         if bias:
             try: # get season observations if passed da is seasonally processed
                 season = val['season'].values
@@ -808,8 +923,11 @@ class Cloud_Metric(object):
                                   (da['lat'] > lat_lims[0]) & (np.absolute(obs_source['lat'])<82))
 
             except:
-                obs = obs_source[var].mean(dim = 'time', skipna=True).where(
+                if 'time' in obs_source[var].dims:
+                    obs = obs_source[var].mean(dim = 'time', skipna=True).where(
                                                 obs_source['lat'] > lat_lims[0]) # obs_source was da, not sure why
+                else:
+                    obs = obs_source[var].where(obs_source['lat'] > lat_lims[0])
             obs = obs.interp_like(val) # quick interp fix for weird grid mismatch (bad.)
 
             # Calculate global average error
@@ -829,7 +947,7 @@ class Cloud_Metric(object):
                     print('Levels: ', im.levels)
             else:
                 im = bias.plot(ax=ax, **kwargs)
-            ax.set_title('Global Error: %.1f. RMS Error: %.1f' % (val_avg-obs_avg,rmse),fontsize=10)
+            ax.set_title('Global Error: %.0f. RMS Error: %.0f' % (val_avg-obs_avg,rmse),fontsize=10)
                     
         else:
             weights = add_weights(val)['cell_weight']
@@ -842,7 +960,7 @@ class Cloud_Metric(object):
                     
             else:
                 im = val.plot(ax=ax,**kwargs) # robust good?
-            ax.set_title('Global Average: %.1f' % val_avg,fontsize=10)
+            ax.set_title('Global Average: %.0f' % val_avg,fontsize=10)
 
         add_map_features(ax) # testing turning this off
         return ax, im
@@ -1224,9 +1342,18 @@ class Cloud_Metric(object):
         elif var in self.ceres_data.data_vars:
             data_source = self.ceres_data
             label = "CERES-EBAF"
+        elif var in self.isccp_data.data_vars:
+            data_source = self.isccp_data
+            label = "ISCCP"     
+        elif var in self.misr_data.data_vars:
+            data_source = self.misr_data
+            label = "MISR"
+        elif var in self.modis_data.data_vars:
+            data_source = self.modis_data
+            label = "MODIS"
         else:
             print("Could not find variable in GOCCP or CERES-EBAF datasets.")
-            sys.exit() # bad?Could not find variable in GOCCP or CERES-EBAF datasets
+            sys.exit() # bad?
         
         return data_source, label
             
@@ -1272,6 +1399,10 @@ class Cloud_Metric(object):
                 if not var in _case.case_da.data_vars: # variable has not been loaded
 #                     print('Adding variable %s' % var)
                     _case.add_tseries_var(var)
+    
+    def load_vars(self,varlist):
+        '''Wrapper for internal function __check_for_vars'''
+        self.__check_for_vars(varlist)
 
         
 class Model_case:

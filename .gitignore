@@ -8,5 +8,8 @@ dask-worker-space/**
 **/__pycache__/**
 **/.ipynb_checkpoints/
 
-Common/.ipynb_checkpoints/
+Common/.ipynb_checkpoints/*
+Common/__pycache__/*
+CESM2_COSP/dask-worker-space/
 Common/__pycache__/
+Common/.ipynb_checkpoints/
