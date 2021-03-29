@@ -20,11 +20,27 @@ def interp_like2D(ds_in, target=None, method='bilinear',verbose=False,regridder=
     Either target or regridder have to be supplied in the function call.
     '''
     
+    # Convert to dataset using name as variable if object is dataarray (fixes things for whatever reason)
+#     if ds_in.name:
+    try:
+        name = ds_in.name
+    except:
+        name = 'VAR'
+    
+    if isinstance(ds_in,xr.DataArray):
+        ds_in = ds_in.to_dataset(name=name)
+    if isinstance(target,xr.DataArray):        
+        target = target.to_dataset(name=name)
+    
     # Get correct horizontal coordinate names (differs between models, obs)
     ds_lat,ds_lon = get_horiz_coords(ds_in, verbose=verbose)
     
     # Remove non-horizontal variables from the input dataset (returned as drops):
-    ds_clean,drops = get_horiz_vars(ds_in, verbose=verbose)
+    try:
+        ds_clean,drops = get_horiz_vars(ds_in, verbose=verbose)
+    except:
+        ds_clean = ds_in
+        drops = {}
     
     # Rotate and wrap longitude appropriately:
     ds_clean.coords[ds_lon] = ds_clean.coords[ds_lon] % 360

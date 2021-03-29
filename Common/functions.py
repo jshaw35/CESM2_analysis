@@ -204,8 +204,15 @@ def add_weights(ds):
     Update to only require existing "lat" and "lon" variables. 
     '''
     
-    lat = ds['lat']
-    lon = ds['lon']
+    try:
+        lat = ds['lat']
+    except:
+        lat = ds['latitude']
+        
+    try:
+        lon = ds['lon']
+    except:
+        lon = ds['longitude']
     
     _ones = xr.ones_like(lon)
     _gw = np.cos(lat*np.pi/180)
