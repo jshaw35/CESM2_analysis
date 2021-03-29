@@ -9,24 +9,29 @@ import matplotlib.pylab as pylab
 from matplotlib.axes import Axes
 
 def regrid(data1,lat1,lon1,lat2,lon2):
-
+    print('nearest neighbor interpolation starting...', end = '')
     # check inputs
     if ((len(lat1) < len(lat2)) or (len(lon1) < len(lon2))):
-        print 'Target grid is higher resolution than input grid.'
+        print('Target grid is higher resolution than input grid.')
         raise
 
     shape = (len(lat2),len(lon2))
     data2 = np.ma.zeros(shape,dtype=data1.dtype,) # use same resolution as data1
+#     print('data2, shape: ',data2.shape)
     if 'fill_value' in dir(data1): # dir?
         data2.fill_value = data1.fill_value # mask where the target grid is masked
 
     # regrid data
-    # This a nearest neighbor approach. Is that ok?
+    # This a nearest neighbor approach. Is that ok?    
     for idx2,lon in enumerate(lon2):
         for idy2,lat in enumerate(lat2):
             idx1 = np.abs(lon1 - lon).argmin()
             idy1 = np.abs(lat1 - lat).argmin() 
+#             print('idx1: ',idx1,idx1.shape)
+#             print('idy1: ',idy1,idy1.shape)
             data2[...,idy2,idx2] = data1[...,idy1,idx1]
+    
+    print('done.')
     return data2
 
 
@@ -52,6 +57,8 @@ class Taylor_statistics():
             lon = test_lon
         else:
             lon = cntl_lon
+            
+        
         test_data = regrid(test_data,test_lat,test_lon,lat,lon)
         cntl_data = regrid(cntl_data,cntl_lat,cntl_lon,lat,lon)
 
@@ -126,6 +133,7 @@ class Taylor_diagram():
         # plot size
         #self.xymax = 1.50
         self.xymax = np.max([1.50,np.max(ratio)+np.max(bias)/2.0])
+#         print('self.xymax: ',self.xymax)
 
         # draw axes
         self.draw_axes(ratio,cc)
@@ -194,7 +202,9 @@ class Taylor_diagram():
             )
 
         # x-axis label
-        self.ax.xaxis.set_label_text('Relative standard deviation')
+#         self.ax.xaxis.set_label_text('Relative standard deviation')
+        # y-axis label
+        self.ax.yaxis.set_label_text('Normalized standard deviation')
 
         # x-axis tickmarks
         xmajorticks = np.arange(0.0,self.xymax+0.01,0.25)
@@ -221,10 +231,16 @@ class Taylor_diagram():
                 "0.5","0.95","%.2f"%(np.min(cc)),"%.2f"%(np.max(cc))
             ]
 
+        # Set axis limits
+        self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)+0.01])
+        self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)+0.01])
+
+        
         # set and draw tickmarks
         self.ax.set_aspect('equal')
         self.ax.xaxis.set_ticks_position('bottom')
         self.ax.yaxis.set_ticks_position('left')
+#         self.ax
 
         self.ax.xaxis.set_ticks(xmajorticks)
         self.ax.xaxis.set_ticklabels(xmajorticklabels)

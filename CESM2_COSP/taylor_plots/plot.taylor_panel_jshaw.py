@@ -14,16 +14,16 @@ import matplotlib.patches as patches
 def get_data(inptr,varname): # hopefully this works with xarray as weel as NetCDF
     if '_FillValue' in dir(inptr.variables[varname]):
         data = np.ma.masked_values(
-                inptr.variables[varname].getValue(),
+                inptr.variables[varname],
                 getattr(inptr.variables[varname],'_FillValue'),
             )
     elif 'missing_value' in dir(inptr.variables[varname]):
         data = np.ma.masked_values(
-                inptr.variables[varname].getValue(),
+                inptr.variables[varname],
                 getattr(inptr.variables[varname],'missing_value'),
             )
     else:
-        data = inptr.variables[varname].getValue()
+        data = inptr.variables[varname]
     return data
 
 # Control names dictionary (i.e. observations)
@@ -61,7 +61,7 @@ matplotlib.rcParams['text.usetex'] = True
 figure = plt.figure()
 
 for iplot,varnames in enumerate(varlist):
-    print varnames
+    print(varnames)
     nvars = len(varnames)
     ntest = len(testnames)
 
@@ -83,7 +83,7 @@ for iplot,varnames in enumerate(varlist):
         # Loop over test cases
         for itest,testname in enumerate(testnames):
 
-            print '    variable: '+varname+', case: '+testname
+            print('    variable: '+varname+', case: '+testname)
 
             # Read data, from model
             test_file = 'plotvars/'+testname+'.'+varname+'.nc'
@@ -102,7 +102,7 @@ for iplot,varnames in enumerate(varlist):
             ratio[ivar,itest] = stats.ratio
             bias[ivar,itest] = stats.bias
 
-            #print 'cc = %.2f, ratio = %.2f, bias = %.2f'%(stats.cc,stats.ratio,stats.bias)
+            #print('cc = %.2f, ratio = %.2f, bias = %.2f'%(stats.cc,stats.ratio,stats.bias))
 
     # Make plot
     ax = figure.add_subplot(2,2,iplot+1,frameon=False)
