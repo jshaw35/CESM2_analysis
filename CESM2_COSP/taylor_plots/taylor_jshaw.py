@@ -132,7 +132,7 @@ class Taylor_diagram():
 
         # plot size
         #self.xymax = 1.50
-        self.xymax = np.max([1.50,np.max(ratio)+np.max(bias)/2.0])
+        self.xymax = np.max([1.50,np.max(ratio)+np.max(np.abs(bias))/2.0]) # JKS added the abs to fix errors
 #         print('self.xymax: ',self.xymax)
 
         # draw axes
@@ -232,8 +232,10 @@ class Taylor_diagram():
             ]
 
         # Set axis limits
-        self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)+0.01])
-        self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)+0.01])
+#         self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)+0.01])
+        self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)*1.05]) # JKS adjustment here
+#         self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)+0.01])
+        self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)*1.05])
 
         
         # set and draw tickmarks

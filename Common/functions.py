@@ -202,6 +202,7 @@ def add_weights(ds):
     '''
     Add variable to ds for weighting of lat,lon variables
     Update to only require existing "lat" and "lon" variables. 
+    Adding mask argument.
     '''
     
     try:
@@ -216,20 +217,16 @@ def add_weights(ds):
     
     _ones = xr.ones_like(lon)
     _gw = np.cos(lat*np.pi/180)
-    ds['cell_weight'] = (_gw @ _ones) / _gw.sum()
     
-#     gw = ds['gw']    
+    _weights = (_gw @ _ones) / _gw.sum() 
+    _weights_norm = _weights / _weights.sum()
+#     xr.testing.assert_allclose(_weights_norm.sum().values,1) # doesn't work for some reason
 
-# #    _wgs = ds['TS'].copy().mean(dim = 'time', skipna=True)
-#     try:
-#         _wgs = ds['TS'].isel(time = 0).copy()
-#     except:
-#         _wgs = ds['TS'].copy() # this is throwing an error
-#     _wgs = (_wgs * 0 + 1) * gw # copy gw into the 2d array
-#     _wgs = _wgs / np.sum(_wgs)  # Normalize
-#     _wgs.name = 'cell_weight'
-
-#     ds['cell_weight'] = _wgs
+    # approach
+#     ds['cell_weight'] = (_gw @ _ones) / _gw.sum()
+    
+    # this might be a better way to add the weights as a coordinate
+    ds = ds.assign_coords(cell_weight=_weights_norm)
     
     return ds
 
@@ -477,3 +474,82 @@ def align_yaxis(ax1, ax2):
     new_lim1, new_lim2 = y_new_lims_normalized * y_mags
     ax1.set_ylim(new_lim1)
     ax2.set_ylim(new_lim2)
+    
+    
+def calculate(cntl,test):
+    """
+    Calculate Taylor statistics for making taylor diagrams.
+    Works with masked array if masked with NaNs.
+    """
+    
+    _cntl = add_weights(cntl)
+       
+    mask = np.bitwise_or(xr.ufuncs.isnan(cntl),xr.ufuncs.isnan(test)) # mask means hide
+#     mask = np.bitwise_or(cntl == np.nan,test == np.nan) # mask means hide
+    
+    wgt = np.array(_cntl['cell_weight'])
+#     wgt = wgt * mask # does this work since one or zero?
+    print(np.nansum(wgt))
+    wgt = np.where(~mask,wgt,np.nan) # erroring
+    
+    sumwgt = np.nansum(wgt) # this is probably where the error is. 
+    
+    
+    print(np.nansum(wgt))
+#     wgt.plot()
+    
+    # calculate sums and means
+    # These weights are not masked, so their sum is too high. This should be fixed now.
+    meantest = np.nansum(wgt*test)/sumwgt
+    meancntl = np.nansum(wgt*cntl)/sumwgt
+
+    # calculate variances
+    stdtest = (np.nansum(wgt*(test-meantest)**2.0)/sumwgt)**0.5
+    stdcntl = (np.nansum(wgt*(cntl-meancntl)**2.0)/sumwgt)**0.5
+
+    # calculate correlation coefficient
+    ccnum = np.nansum(wgt*(test-meantest)*(cntl-meancntl))
+    ccdem = sumwgt*stdtest*stdcntl
+    corr = ccnum/ccdem
+
+    # calculate variance ratio
+    ratio = stdtest/stdcntl
+
+    # calculate bias
+    bias = (meantest - meancntl)/np.abs(meancntl)
+    #self.bias = meantest - meancntl
+    # Calculate the absolute bias
+    bias_abs = meantest - meancntl
+
+    # calculate centered pattern RMS difference
+    try:
+        rmssum = np.nansum(wgt*((test-meantest)-(cntl-meancntl))**2.0)
+        
+    except:
+        print('test: ',test.shape)
+        print('meantest: ',meantest.shape)
+        print('cntl: ',cntl.shape)
+        print('meancntl: ',meancntl.shape)
+        print(((test-meantest)-(cntl-meancntl)).shape)
+        print(((test-meantest)-(cntl-meancntl)).lat)
+        print(((test-meantest)-(cntl-meancntl)).lon)
+    rmserr = (rmssum/sumwgt)**0.5
+    rmsnorm = rmserr/stdcntl
+    
+#     return corr,ratio,bias,rmsnorm
+    return bias,corr,rmsnorm,ratio,bias_abs
+
+
+def dual_mask(da1,da2):
+    '''
+    Take in two dataarrays masked with Nans. Calculate a shared mask.
+    Return both arrays with the shared mask.
+    '''
+    
+    mask = np.bitwise_or(xr.ufuncs.isnan(da1),xr.ufuncs.isnan(da2)) # mask means hide
+    
+    da1_out = da1.where(~mask) # dual-masked arrays
+    da2_out = da2.where(~mask) # 
+    
+    return da1_out,da2_out
+    

@@ -264,7 +264,7 @@ class Cloud_Metric(object):
         '''
         print('Loading CERES-EBAF fluxes...', end = '')
         _ceres_data = xr.open_dataset('/glade/u/home/jonahshaw/obs/CERES_EBAF/CERES_EBAF-TOA_Ed4.1_Subset_200003-202002.nc')
-        _ceres_data = _ceres_data.sel(time=slice('2006-01-01', '2015-12-31')) # Use AMIP by default
+#         _ceres_data = _ceres_data.sel(time=slice('2000-01-01', '2015-12-31')) # This was a problem.
         _ceres_data = add_weights(_ceres_data)
         # Flip FLNSC so it matches model convention (net-LW is down, net-SW is up)
 #         _ceres_data['sfc_net_lw_clr_t_mon'] = -1*_ceres_data['sfc_net_lw_clr_t_mon']
@@ -431,7 +431,7 @@ class Cloud_Metric(object):
             axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
         except:
             axes.set_ylabel('%s' % (var))
-        fig.legend()
+#         fig.legend()
         
         return fig
 
@@ -678,35 +678,47 @@ class Cloud_Metric(object):
         Create subplots object and iterate over cases to plot with correct projection, etc.
         '''
         obs_source, obs_label = self.__get_data_source(var)
-        if bias:
-            fig, axes = sp_map(nrows=len(self.cases), ncols=1,
-                           projection=projection, figsize=[15,2*(len(self.cases))])
-            fig.set_dpi(200)
-            ylabels = self.case_labels
-            case_axes = axes
-            if len(self.cases) == 1:  # jks handle axes if not an interable
-                case_axes = [axes]
-            
-        else:
-            fig, axes = sp_map(nrows=len(self.cases)+1, ncols=1,
-                           projection=projection, figsize=[15,2*(len(self.cases)+1)])
-            fig.set_dpi(200)
-            ylabels = [obs_label] + self.case_labels
-            if len(self.cases) == 0:  # jks handle axes if not an interable
-                axes = np.array([axes])
-                case_axes = []
-            else:
-#             _axes = axes if len(self.cases) == 0 else axes.flat[1:]
-#             if len(self.cases) == 0: _axes = axes
-                case_axes = axes.flat[1:]
-        
+
+        out = False
         if 'ax' in kwargs.keys(): # use user supplied axes, must be of appropriate size and just a list
+            out = True
             if bias:
                 case_axes = kwargs['ax']
             else:
                 case_axes = kwargs['ax'][1:]
                 axes = np.array(kwargs['ax'])
-            del kwargs['ax']
+            del kwargs['ax'] # hmm
+        
+        else:
+            if bias:
+                fig, axes = sp_map(nrows=len(self.cases), ncols=1,
+                               projection=projection, figsize=[15,2*(len(self.cases))])
+                fig.set_dpi(200)
+                ylabels = self.case_labels
+                case_axes = axes
+                if len(self.cases) == 1:  # jks handle axes if not an interable
+                    case_axes = [axes]
+
+            else:
+                fig, axes = sp_map(nrows=len(self.cases)+1, ncols=1,
+                               projection=projection, figsize=[15,2*(len(self.cases)+1)])
+                fig.set_dpi(200)
+                ylabels = [obs_label] + self.case_labels
+                if len(self.cases) == 0:  # jks handle axes if not an interable
+                    axes = np.array([axes])
+                    case_axes = []
+                else:
+    #             _axes = axes if len(self.cases) == 0 else axes.flat[1:]
+    #             if len(self.cases) == 0: _axes = axes
+                    case_axes = axes.flat[1:]
+        
+#         if 'ax' in kwargs.keys(): # use user supplied axes, must be of appropriate size and just a list
+#             if bias:
+#                 case_axes = kwargs['ax']
+#             else:
+#                 case_axes = kwargs['ax'][1:]
+#                 axes = np.array(kwargs['ax'])
+#             del kwargs['ax']
         
         if not bias: # weird re-org here
             # jks handle season
@@ -730,12 +742,13 @@ class Cloud_Metric(object):
             _ax, _im = self.standard2Dplot(var,_da, ax,projection=projection,
                                            bias=bias,**kwargs)
                         
-        yax = axes
-        try:
-            xlabels = [var]; xax = [axes[0]]
-        except:
-            xlabels = [var]; xax = [axes]
+        
         if label:
+            yax = axes
+            try:
+                xlabels = [var]; xax = [axes[0]]
+            except:
+                xlabels = [var]; xax = [axes]
             self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
         
         if not 'contour' in kwargs.keys():
@@ -754,8 +767,10 @@ class Cloud_Metric(object):
                 else:
                     cbar.set_label("%s (%s)" % (_da[var].long_name,_da[var].units))#, fontsize=12)
 
-#         plt.show()
-        return fig, _im
+        if out == True:
+            return None,_im
+        else:
+            return fig, _im
 
     def __layersplotwrapper(self, varlist, projection, bias=False, season=None, **kwargs):
         '''
@@ -885,7 +900,7 @@ class Cloud_Metric(object):
                 
         return fig
     
-    def standard2Dplot(self, var, da, ax, projection=None, bias=False, contour=False, **kwargs):
+    def standard2Dplot(self, var, da, ax, projection=None, bias=False, contour=False, afunc=None,**kwargs):
         '''
         Basic workhorse plotting function. needs to handle bias and seasons
         '''
@@ -902,7 +917,10 @@ class Cloud_Metric(object):
         else:
             val = da[var].mean(dim = 'time', skipna=True).where(
                                 da['lat'] > lat_lims[0])            
-        
+                    # apply an arbitrary function (must return 2d output):
+        if afunc:
+            val = afunc(val)
+            
         standards = {'levels':20 if contour else None, 
                      'extend':'both', 
                      'robust':True,
@@ -914,8 +932,8 @@ class Cloud_Metric(object):
         else: lvl_bool = False
         for i in standards: # adopt standards if the argument is unspecified
             if i not in kwargs.keys():
-                kwargs[i] = standards[i]
-                
+                kwargs[i] = standards[i]            
+            
         if bias:
             try: # get season observations if passed da is seasonally processed
                 season = val['season'].values
@@ -928,6 +946,10 @@ class Cloud_Metric(object):
                                                 obs_source['lat'] > lat_lims[0]) # obs_source was da, not sure why
                 else:
                     obs = obs_source[var].where(obs_source['lat'] > lat_lims[0])
+                    
+            # apply an arbitrary function (must return 2d output):
+            if afunc:
+                obs = afunc(obs)
             obs = obs.interp_like(val) # quick interp fix for weird grid mismatch (bad.)
 
             # Calculate global average error
@@ -1474,9 +1496,25 @@ class Model_case:
             return
         else:
             varfile = varfiles[0]
+            var_da = xr.open_dataset(varfile)
+#             print(var_da.coords)
+            try:
+                var_da['time'] = var_da['time_bnds'].isel(bnds=0)
+            except:
+                var_da['time'] = var_da['time_bnds'].isel(nbnd=0)
+            try:
+#                 print(var_da['time.year'])
+                if var_da['time.year'][0] > 1000: # bad way to discriminate by year format
+                    var_da = var_da.sel(time=slice('2001-01-01', '2010-12-31')) # work for the AMIP 0000-0010
+                else:
+                    var_da = var_da.sel(time=slice('0001-01-01', '0010-12-31')) # work for the AMIP 0000-0010
+            except:
+                print("Four-year format not found for %s in %s." % (var,self.case))
+                
         if self.case_da is None:
             # create self.case_da with var
-            self.case_da = xr.open_dataset(varfile)
+            self.case_da = var_da
         else:
-            self.case_da = xr.merge([self.case_da, xr.open_dataset(varfile)])
+#             self.case_da = xr.merge([self.case_da, xr.open_dataset(varfile)]) # JKS testing
+            self.case_da = xr.merge([self.case_da, var_da],compat='override') # JKS testing
                         
