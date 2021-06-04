@@ -64,11 +64,16 @@ import cartopy.feature as cfeature
 import re # regular expressions
 
 # Plotting a la Kay 2015:
-import cmaps  # for NCL colormaps
-
+# these modules aren't in my local conda environment, but they also aren't essential
+try:
+    import cmaps  # for NCL colormaps
+except:
+    pass
 # For the interpolation curvilinear grids (anything on the globe!)
-import xesmf as xe
-
+try:
+    import xesmf as xe
+except:
+    pass
 # For running command line operations through python
 from subprocess import run
 
