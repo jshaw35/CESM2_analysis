@@ -13,3 +13,5 @@ Common/__pycache__/*
 CESM2_COSP/dask-worker-space/
 Common/__pycache__/
 Common/.ipynb_checkpoints/
+Common/__pycache__/cloud_metric.cpython-37.pyc
+Common/__pycache__/imports.cpython-37.pyc
