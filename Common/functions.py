@@ -489,14 +489,13 @@ def calculate(cntl,test):
     
     wgt = np.array(_cntl['cell_weight'])
 #     wgt = wgt * mask # does this work since one or zero?
-    print(np.nansum(wgt))
+#     print(np.nansum(wgt))
     wgt = np.where(~mask,wgt,np.nan) # erroring
     
     sumwgt = np.nansum(wgt) # this is probably where the error is. 
     
     
-    print(np.nansum(wgt))
-#     wgt.plot()
+#     print(np.nansum(wgt))
     
     # calculate sums and means
     # These weights are not masked, so their sum is too high. This should be fixed now.

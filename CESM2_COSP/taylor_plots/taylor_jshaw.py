@@ -132,7 +132,12 @@ class Taylor_diagram():
 
         # plot size
         #self.xymax = 1.50
-        self.xymax = np.max([1.50,np.max(ratio)+np.max(np.abs(bias))/2.0]) # JKS added the abs to fix errors
+#         self.xymax = np.max([1.50,np.max(ratio)+np.max(np.abs(bias))/2.0]) # JKS added the np.abs() to fix errors
+        self.xymax = np.max([1.50,np.max(ratio+np.abs(bias)/2.0)]) # JKS added the np.abs() and moved np.max outward to fix errors
+#         print('self.xymax: ',self.xymax)
+        
+        self.xymax = np.ceil(self.xymax*4)/4 # JKS Round up to the nearest 0.25
+
 #         print('self.xymax: ',self.xymax)
 
         # draw axes
@@ -208,12 +213,14 @@ class Taylor_diagram():
 
         # x-axis tickmarks
         xmajorticks = np.arange(0.0,self.xymax+0.01,0.25)
+#         xmajorticks = np.arange(0.0,self.xymax+0.25,0.25) # JKS fix mismatch with self.xymax by rounding up in 0.25 increments
         xmajorticklabels = []
         xminorticks = [np.min(ratio),np.max(ratio)]
         xminorticklabels = ["%.2f"%(np.min(ratio)),"%.2f"%(np.max(ratio))]
 
         # y-axis tickmarks
         ymajorticks = np.arange(0.0,self.xymax+0.01,0.25)
+#         ymajorticks = np.arange(0.0,self.xymax+0.25,0.25) # JKS fix mismatch
         ymajorticklabels = []
         for idy in range(len(ymajorticks)):
             if idy%2 == 0:
@@ -232,11 +239,12 @@ class Taylor_diagram():
             ]
 
         # Set axis limits
-#         self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)+0.01])
-        self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)*1.05]) # JKS adjustment here
-#         self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)+0.01])
-        self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)*1.05])
-
+        self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)+0.01])
+#         self.ax.set_ylim([min(ymajorticks)-0.01, max(ymajorticks)*1.05]) # JKS adjustment here
+        self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)+0.01])
+#         self.ax.set_xlim([min(xmajorticks)-0.01, max(xmajorticks)*1.05])
+#         print('ymajorticks: ',ymajorticks)
+#         print('xmajorticks: ',xmajorticks)
         
         # set and draw tickmarks
         self.ax.set_aspect('equal')
