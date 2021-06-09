@@ -121,7 +121,8 @@ class Cloud_Metric(object):
         self.ceres_var_dict = {
             'toa_sw_all_mon':'FSNT','toa_lw_all_mon':'FLNT', # FSNT is wrong (both sign and magnitude)
             'toa_sw_clr_c_mon':'FSNTC','toa_lw_clr_c_mon':'FLNTC', # _c_ means that it is just from clear footprints
-            'cldtau_total_day_mon':'CLDTAU','solar_mon':'SOLIN',
+            'solar_mon':'SOLIN',
+#             'cldtau_total_day_mon':'CLDTAU','solar_mon':'SOLIN',
         }
 #             'toa_sw_clr_t_mon':'FSNTC','toa_lw_clr_t_mon':'FLNTC', # _t_ means that it is derived from all observations and is more consistent with the model variable
 #             'toa_cre_sw_mon':'SWCF','toa_cre_lw_mon':'LWCF',
@@ -263,7 +264,8 @@ class Cloud_Metric(object):
         Load interpolated CERES-EBAF data and rename variables for easier comparison/incorporation.
         '''
         print('Loading CERES-EBAF fluxes...', end = '')
-        _ceres_data = xr.open_dataset('/glade/u/home/jonahshaw/obs/CERES_EBAF/CERES_EBAF-TOA_Ed4.1_Subset_200003-202002.nc')
+#         _ceres_data = xr.open_dataset('/glade/u/home/jonahshaw/obs/CERES_EBAF/CERES_EBAF-TOA_Ed4.1_Subset_200003-202002.nc')
+        _ceres_data = xr.open_dataset('/glade/work/jonahshaw/obs/CERES/CERES_EBAF-TOA_Ed4.1_Subset_200003-202102.nc')
 #         _ceres_data = _ceres_data.sel(time=slice('2000-01-01', '2015-12-31')) # This was a problem.
         _ceres_data = add_weights(_ceres_data)
         # Flip FLNSC so it matches model convention (net-LW is down, net-SW is up)
@@ -342,12 +344,11 @@ class Cloud_Metric(object):
         print('done.')
         
         
-    def add_case(self, case, path=None, label=None): # Dictionary can be overwritten
+    def add_case(self, case, path=None, label=None, t_range=None): # Dictionary can be overwritten
         # Add a Model_case object to the cases dictionary
-        if path == None:
-            self.cases[case] = Model_case(self.case_dir,case)
-        else:
-            self.cases[case] = Model_case(path, case)
+        if path == None: # Default argument values are evaluated at function define-time, but self is an argument only available at function call time.
+            path = self.case_dir
+        self.cases[case] = Model_case(path, case, t_range=t_range) # opportunity for kwargs here
         if label:
             self.cases[case].label = label
             self.case_labels += [label]
@@ -723,14 +724,15 @@ class Cloud_Metric(object):
         if not bias: # weird re-org here
             # jks handle season
             _da = obs_source
+            _label = '%s %s' % (obs_label, var)
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
             _ax,_im = self.standard2Dplot(var, _da, axes.flat[0],
-                                projection=projection, bias=False,**kwargs)
+                                projection=projection, bias=False, label=_label, **kwargs) # JKS include var name here
 #             _axes = axes.flat[1:]
         
-        for ax, k in zip(case_axes, self.cases):
+        for ax, k, _label in zip(case_axes, self.cases, self.case_labels):
             _run = self.cases[k]
             _da = _run.case_da
             
@@ -740,7 +742,7 @@ class Cloud_Metric(object):
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
                 
             _ax, _im = self.standard2Dplot(var,_da, ax,projection=projection,
-                                           bias=bias,**kwargs)
+                                           bias=bias, label=_label, **kwargs)
                         
         
         if label:
@@ -800,11 +802,11 @@ class Cloud_Metric(object):
                     obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
                     
                 _ax, _im = self.standard2Dplot(var, obs_da, varax[0],
-                                projection=projection, bias=False,**kwargs)
+                                projection=projection, bias=False, label=obs_label, **kwargs)
                 case_ax = varax[1:]
                 
         
-            for ax, k in zip(case_ax, self.cases):
+            for ax, k, _label in zip(case_ax, self.cases, self.case_labels):
                 _run = self.cases[k]
                 _da = _run.case_da
             
@@ -814,7 +816,7 @@ class Cloud_Metric(object):
 
                 # Works with percents only
                 _ax, _im = self.standard2Dplot(var,_da, ax,projection=projection,
-                                               bias=bias,**kwargs)
+                                               bias=bias, label=_label, **kwargs)
         
         yax = axes[:,0]
         xlabels = []
@@ -862,7 +864,7 @@ class Cloud_Metric(object):
             for season,ax in zip(self.seasons,axes[0]):
                 seas = _season_da.sel(season=season)
                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
-                                    projection=projection, bias=False,**kwargs)
+                                    projection=projection, bias=False,label=obs_label, **kwargs)
                 
 #             for seas,ax in zip(_season_da,axes[0]):
 #                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
@@ -870,7 +872,7 @@ class Cloud_Metric(object):
             _axes = axes[1:]
             
         # Iterate cases first, and then seasons within that
-        for xaxes, k in zip(_axes, self.cases):
+        for xaxes, k, _label in zip(_axes, self.cases, self.case_labels):
             _run = self.cases[k]
             _da = _run.case_da
             
@@ -879,7 +881,7 @@ class Cloud_Metric(object):
             for season,ax in zip(self.seasons,xaxes):
                 seas = _season_da.sel(season=season)
                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
-                                projection=projection, bias=bias,**kwargs)
+                                projection=projection, bias=bias, label=_label, **kwargs)
             
 #             for seas,ax in zip(_season_da,xaxes):
 #                 _ax, _im = self.standard2Dplot(var, seas.to_dataset(name=var), ax,
@@ -900,11 +902,15 @@ class Cloud_Metric(object):
                 
         return fig
     
-    def standard2Dplot(self, var, da, ax, projection=None, bias=False, contour=False, afunc=None,**kwargs):
+    def standard2Dplot(self, var, da, ax, projection=None, bias=False, contour=False, afunc=None,
+                       label=None, **kwargs):
         '''
         Basic workhorse plotting function. needs to handle bias and seasons
         '''
         obs_source, obs_label = self.__get_data_source(var)
+#         bold_label = r"$\bf{" + label + "}$"
+        bold_label = r"$\textbf{" + label + "}$"
+        
         lat_lims = [-90,90]
         if projection == ccrs.NorthPolarStereo(): 
             lat_lims = [59.5,90]
@@ -969,7 +975,8 @@ class Cloud_Metric(object):
                     print('Levels: ', im.levels)
             else:
                 im = bias.plot(ax=ax, **kwargs)
-            ax.set_title('Global Error: %.0f. RMS Error: %.0f' % (val_avg-obs_avg,rmse),fontsize=10)
+#             ax.set_title('Global Error: %.0f. RMS Error: %.0f' % (val_avg-obs_avg,rmse),fontsize=10)
+            ax.set_title('%s Global Error: %.0f. RMS Error: %.0f' % (bold_label,val_avg-obs_avg,rmse),fontsize=12) # JKS
                     
         else:
             weights = add_weights(val)['cell_weight']
@@ -982,7 +989,7 @@ class Cloud_Metric(object):
                     
             else:
                 im = val.plot(ax=ax,**kwargs) # robust good?
-            ax.set_title('Global Average: %.0f' % val_avg,fontsize=10)
+            ax.set_title('%s Global Average: %.0f' % (bold_label,val_avg),fontsize=12)
 
         add_map_features(ax) # testing turning this off
         return ax, im
@@ -1140,7 +1147,6 @@ class Cloud_Metric(object):
         '''
         self.__check_for_vars(['CLDTOT_CAL','CLDTOT_CAL_LIQ','CLDTOT_CAL_ICE','CLDTOT_CAL_UN'])
         fig = plt.figure(figsize=[6*(len(self.cases)),10],dpi=200)
-#         months = ['J','F','M','A','M','J','J', 'A','S','O','N','D'] # month initials
         # Rotate and reverse so that they read clockwise from the top
         months_dq = deque(self.months) 
         months_dq.rotate(-4) 
@@ -1411,7 +1417,7 @@ class Cloud_Metric(object):
         '''Check if each case has the requested variables. Add them if they are not present.''' 
         if not isinstance(varlist, list): # convert varlist to iterable if it isn't already
             varlist = [varlist]
-            
+                        
         for k in self.cases:
             _case = self.cases[k]
             for var in varlist:
@@ -1428,10 +1434,15 @@ class Cloud_Metric(object):
 
         
 class Model_case:
+    '''
+    Class for models within a cloud metric class.
     
-    def __init__(self, casedir, case):
+    '''
+    
+    def __init__(self, casedir, case, t_range=None):
         self.case_dir = casedir # General directory where all cases are stored
         self.case = case # The case name
+        self.t_range = t_range
         
         self.add_ds()
         
@@ -1446,7 +1457,14 @@ class Model_case:
             self.label = self.case
             self.date, self.time, self.paramfile, self.wbf_mult, self.inp_mult = ['None','None','None','None','None']
         
-    def add_ds(self, tseries=True):
+    def add_ds(self): # try removing tseries here
+        '''
+        Load the CAM output.
+        First try to identify a processed timeseries directory so that data can be loaded incrementally.
+        If no processed data is found, use open_mfdataset (slow,bad).
+        
+        '''
+        
         if os.path.exists("%s/%s/atm/proc/tseries/month_1/" % (self.case_dir,self.case)): # check for "processed tseries folder"
             print("Processed timeseries directory found for %s. Will load data as required." % self.case)
             self.tseries_input = True
@@ -1466,11 +1484,11 @@ class Model_case:
             except:
                 _ds['time'] = _ds['time_bnds'].isel(nbnd=0)
 
-            try:
-                ds = _ds.sel(time=slice('0001-01-01', '0010-12-31')) # work for the AMIP 0000-0010
-    #             ds = _ds.sel(time=slice('2009-06-01', '2013-05-01')) # gets all 48 files this doesn't work for the AMIP 0000-0010
-            except:
-                print("Four-year format not found.")
+            if self.t_range:
+                try:
+                    ds = _ds.sel(time=slice(*self.t_range)) # flexible date selection with fun unpack syntax
+                except:
+                    print("Year format %s - %s not found." % (*self.t_range,))
             ds = add_weights(ds)
 
             self.case_da = ds
@@ -1497,19 +1515,16 @@ class Model_case:
         else:
             varfile = varfiles[0]
             var_da = xr.open_dataset(varfile)
-#             print(var_da.coords)
             try:
                 var_da['time'] = var_da['time_bnds'].isel(bnds=0)
             except:
                 var_da['time'] = var_da['time_bnds'].isel(nbnd=0)
-            try:
-#                 print(var_da['time.year'])
-                if var_da['time.year'][0] > 1000: # bad way to discriminate by year format
-                    var_da = var_da.sel(time=slice('2001-01-01', '2010-12-31')) # work for the AMIP 0000-0010
-                else:
-                    var_da = var_da.sel(time=slice('0001-01-01', '0010-12-31')) # work for the AMIP 0000-0010
-            except:
-                print("Four-year format not found for %s in %s." % (var,self.case))
+                
+            if self.t_range:
+                try:
+                    var_da = var_da.sel(time=slice(*self.t_range))
+                except:
+                    print("Year format %s - %s not found." % (*self.t_range,))
                 
         if self.case_da is None:
             # create self.case_da with var
@@ -1517,4 +1532,3 @@ class Model_case:
         else:
 #             self.case_da = xr.merge([self.case_da, xr.open_dataset(varfile)]) # JKS testing
             self.case_da = xr.merge([self.case_da, var_da],compat='override') # JKS testing
-                        
