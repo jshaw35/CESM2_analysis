@@ -83,7 +83,7 @@ def add_map_features(ax):
     '''
     Single line command for xarray plots
     '''
-    gl = ax.gridlines()
+    gl = ax.gridlines(linewidth=0.0, color='black',alpha=1.0)
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5);
     ax.add_feature(cfeature.BORDERS, linewidth=0.5);
     gl.xlabels_top = False
@@ -552,3 +552,76 @@ def dual_mask(da1,da2):
     
     return da1_out,da2_out
     
+    
+def middle_space(text):
+    '''
+    Return the index of the middle space in a string, rounding up.
+    '''
+    index = 0
+    idxs = []
+
+    while index < len(text):
+        index = text.find(' ', index)
+        if index == -1:
+            break
+        idxs.append(index)
+        index += 1 # +2 because len('ll') == 2
+    
+    return idxs[int(np.ceil((len(idxs)-1)/2))] 
+
+
+def split_string(text,len_lim=45):
+    '''Used with middle_space() to split too long strings'''
+    
+    if len(text) > len_lim:
+        idx = middle_space(text)
+        return match_brackets(text[:idx] + ' \n' + text[idx:])
+    else:
+        return text
+    
+def match_brackets(text):
+    '''
+    Fix a split string if the split occurs in the middle of a 
+    bracketed segment. 
+    i.e. The string:
+    $\mathbf{ISCCP Total Cloud Fraction (\%)}$ Global Average: 66
+    will be split as:
+    $\mathbf{ISCCP Total Cloud Fraction 
+    (\%)}$ Global Average: 66
+    and should be corrected to:
+    $\mathbf{ISCCP Total Cloud Fraction} 
+    \mathbf{(\%)}$ Global Average: 66
+    '''
+    
+    split_text = text.split('\n') # split along the line break (so far assuming a single line break)
+    
+    if (len(split_text) > 1) and (split_text[0].count('{') % 2 != 0): # if break and brackets are uneven
+
+        s1_reverse = split_text[0][::-1] # we work with a backwards first string to search
+
+        b_start = s1_reverse.find('{') # find the mismatched bracket
+        c_start = s1_reverse[b_start+1:].find('\\') # get the latex command's first index
+
+        c_value = split_text[0][-b_start-c_start-1:-b_start-1] # the full latex command
+    #     print(c_value)
+
+        s1b = split_text[0][:-1] + '}$'
+        s2b = '$\\%s{' % c_value + split_text[1][1:]
+
+        return s1b + ' \n ' + s2b
+    
+    return text # if the brackets are even, you're good
+
+def bfize(input_str):
+    '''Weird function for bolded plot titles.'''
+    
+    splt = input_str.split(' ')
+
+    bfized = ['\\mathbf{%s}\ ' % i for i in splt]
+
+    _str = ''
+    for i in bfized:
+        _str += i
+
+#     print(_str[:-2]) # cut off the last space    
+    return '$' + _str[:-2] + '$' # cut off the last space and package

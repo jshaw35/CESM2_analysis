@@ -3,6 +3,8 @@ from functions import *
 
 np.seterr(divide='ignore', invalid='ignore') # this maybe isn't working??
 
+mpl.rc('text', usetex=True)
+plt.rcParams['text.latex.preamble'] = r"\usepackage{bm} \usepackage{amsmath}" # could I add siunitx?
 
 class Cloud_Metric(object):
     '''
@@ -170,9 +172,12 @@ class Cloud_Metric(object):
         
         self.seas_dict = {"DJF":0,"JJA":1,"MAM":2,"SON":3}
         
-        self.var_label_dict = {'CLDTOT_CAL':'Total Cloud \n Fraction (%)', 
-                               'CLDTOT_CAL_LIQ':'Liquid Cloud \n Fraction (%)',
-                               'CLDTOT_CAL_ICE':'Ice Cloud \n Fraction (%)'}
+        self.var_label_dict = {'CLDTOT_CAL':'Total Cloud Fraction (\%)', # had a '\n'
+                               'CLDTOT_CAL_LIQ':'Liquid Cloud \n Fraction (\%)',
+                               'CLDTOT_CAL_ICE':'Ice Cloud \n Fraction (\%)',
+                               'CLDTOT_ISCCP':'Total Cloud Fraction (\%)',
+                               'CLDTOT_MISR':'Total Cloud Fraction (\%)',
+                              }
         
         self.months = ['J','F','M','A','M','J','J','A','S','O','N','D'] # month initials
         
@@ -408,6 +413,7 @@ class Cloud_Metric(object):
         fig, axes = plt.subplots(nrows=1,ncols=1,figsize=[6,4])
         fig.set_dpi(200)
         obs_source, obs_label = self.__get_data_source(var)
+#         obs_label = obs_label.replace('_',' ') # cleans underscores from labels so Latex doesn't bug out JKS
         obs_da = obs_source
         if not bias:
             if season:
@@ -448,9 +454,9 @@ class Cloud_Metric(object):
             labels = self.case_labels
         else:
             labels = [obs_label] + self.case_labels
-        
+                
         obs_da = obs_source
-        for var,ax in zip(varlist,axes):
+        for var,ax in zip(varlist,axes):                
             if not bias:
                 if season:
                     _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
@@ -470,12 +476,19 @@ class Cloud_Metric(object):
         
         fig.legend(labels=labels)
         
-        xlabels = varlist; xax = axes
+        xlabels = []
+        for i in varlist: # jks improve labelling with self.var_label_dict
+            try:
+                xlabels.append(self.var_label_dict[i])
+            except:
+                xlabels.append(i)
+        xax = axes
+        
         if bias:
             self.add_labels(xlabels=xlabels, xaxes=xax, ylabels=["Bias (Model-Observation)"], 
                             yaxes=[axes[0]])
         else:
-            self.add_labels(xlabels=xlabels, xaxes=xax)
+            self.add_labels(xlabels=xlabels, xaxes=xax) # JKS testing error
         self.share_ylims(axes)
         
         fig.subplots_adjust(hspace=0.5)
@@ -702,7 +715,7 @@ class Cloud_Metric(object):
 
             else:
                 fig, axes = sp_map(nrows=len(self.cases)+1, ncols=1,
-                               projection=projection, figsize=[15,2*(len(self.cases)+1)])
+                               projection=projection, figsize=[20,2*(len(self.cases)+1)])
                 fig.set_dpi(200)
                 ylabels = [obs_label] + self.case_labels
                 if len(self.cases) == 0:  # jks handle axes if not an interable
@@ -724,7 +737,7 @@ class Cloud_Metric(object):
         if not bias: # weird re-org here
             # jks handle season
             _da = obs_source
-            _label = '%s %s' % (obs_label, var)
+            _label = '%s %s' % (obs_label, self.var_label_dict[var])
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
@@ -733,6 +746,7 @@ class Cloud_Metric(object):
 #             _axes = axes.flat[1:]
         
         for ax, k, _label in zip(case_axes, self.cases, self.case_labels):
+            if bias: _label += ' Bias'
             _run = self.cases[k]
             _da = _run.case_da
             
@@ -744,14 +758,13 @@ class Cloud_Metric(object):
             _ax, _im = self.standard2Dplot(var,_da, ax,projection=projection,
                                            bias=bias, label=_label, **kwargs)
                         
-        
         if label:
             yax = axes
             try:
                 xlabels = [var]; xax = [axes[0]]
             except:
                 xlabels = [var]; xax = [axes]
-            self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
+            self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax,height=1.25)
         
         if not 'contour' in kwargs.keys():
             self.share_clims(fig)
@@ -782,12 +795,12 @@ class Cloud_Metric(object):
         
         if bias:
             fig, axes = sp_map(nrows=len(self.cases), ncols=len(varlist),
-                           projection=projection, figsize=[2.5*len(varlist),2*(len(self.cases))])
+                           projection=projection, figsize=[5.25*len(varlist),3*(len(self.cases))])
             ylabels = self.case_labels
             
         else:
             fig, axes = sp_map(nrows=len(self.cases)+1, ncols=len(varlist),
-                           projection=projection, figsize=[3*len(varlist),2*(len(self.cases)+1)])
+                           projection=projection, figsize=[5.25*len(varlist),3*(len(self.cases)+1)])
             ylabels = [obs_label] + self.case_labels
 #         fig.set_dpi(100)
             
@@ -827,7 +840,7 @@ class Cloud_Metric(object):
                 xlabels.append(i)
                 
         xax = axes[0,:]
-        self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
+        self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax,height=1.25)
 
         if not 'contour' in kwargs.keys():
             self.share_clims(fig)
@@ -898,7 +911,7 @@ class Cloud_Metric(object):
         
         yax = axes[:,0]
         xlabels = self.seasons; xax = axes[0,:]
-        self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax)
+        self.add_labels(ylabels=ylabels, yaxes=yax, xlabels=xlabels, xaxes=xax,height=1.25)
                 
         return fig
     
@@ -908,8 +921,10 @@ class Cloud_Metric(object):
         Basic workhorse plotting function. needs to handle bias and seasons
         '''
         obs_source, obs_label = self.__get_data_source(var)
-#         bold_label = r"$\bf{" + label + "}$"
-        bold_label = r"$\textbf{" + label + "}$"
+        
+        bold_label = bfize(label)
+        if len(label) > 20 or bias: # large titles need to be split
+            bold_label = bold_label + ' \n '   
         
         lat_lims = [-90,90]
         if projection == ccrs.NorthPolarStereo(): 
@@ -933,6 +948,7 @@ class Cloud_Metric(object):
                      'add_colorbar':False,
                      'transform':ccrs.PlateCarree(),
                      'cmap':self.color_map if contour else 'vlag' if bias else 'viridis'} # handle 3(4) cases
+#                      'cmap':'vlag' if bias else self.color_map} # handle 3(4) cases
         if ('levels' not in kwargs.keys()) or np.any(kwargs['levels'] == None):
             lvl_bool = True
         else: lvl_bool = False
@@ -976,7 +992,9 @@ class Cloud_Metric(object):
             else:
                 im = bias.plot(ax=ax, **kwargs)
 #             ax.set_title('Global Error: %.0f. RMS Error: %.0f' % (val_avg-obs_avg,rmse),fontsize=10)
-            ax.set_title('%s Global Error: %.0f. RMS Error: %.0f' % (bold_label,val_avg-obs_avg,rmse),fontsize=12) # JKS
+            
+            net_label = '%s Global Error: %.0f. RMS Error: %.0f' % (bold_label,val_avg-obs_avg,rmse)
+            ax.set_title(net_label,fontsize=12) # JKS
                     
         else:
             weights = add_weights(val)['cell_weight']
@@ -989,7 +1007,9 @@ class Cloud_Metric(object):
                     
             else:
                 im = val.plot(ax=ax,**kwargs) # robust good?
-            ax.set_title('%s Global Average: %.0f' % (bold_label,val_avg),fontsize=12)
+
+            net_label = '%s Global Average: %.0f' % (bold_label,val_avg)
+            ax.set_title(net_label,fontsize=12) # JKS
 
         add_map_features(ax) # testing turning this off
         return ax, im
@@ -1292,17 +1312,20 @@ class Cloud_Metric(object):
         
         return fig
         
-    def add_labels(self, xlabels=None, ylabels=None, xaxes=None, yaxes=None):
+    def add_labels(self, xlabels=None, ylabels=None, xaxes=None, yaxes=None, height=1.05):
+        '''
+        Labelling function for 2d subplot grids.
+        '''
         try:
             for ax,label in zip(xaxes,xlabels):
-                ax.text(0.5, 1.1, label, va='bottom', ha='center',
-                    rotation='horizontal', rotation_mode='anchor',
-                    transform=ax.transAxes, fontsize=14)
+                ax.text(0.5, height, label.replace('_',' '), va='bottom', ha='center',
+                        rotation='horizontal', rotation_mode='anchor',
+                        transform=ax.transAxes, fontsize=14)
         except: pass
 
         try:
             for ax,label in zip(yaxes,ylabels):
-                ax.text(-0.2, 0.5, label, va='bottom', ha='center',
+                ax.text(-0.1, 0.5, label.replace('_',' '), va='bottom', ha='center',
                     rotation='vertical', rotation_mode='anchor',
                     transform=ax.transAxes, fontsize=14)
         except: pass
@@ -1366,7 +1389,7 @@ class Cloud_Metric(object):
         ''' Figure out if a GOCCP or CERES-EBAF variable. Return correct dataset.'''
         if var in self.goccp_data.data_vars: # what is this
             data_source = self.goccp_data
-            label = "GOCCP"
+            label = "CALIPSO" # was "GOCCP"
         elif var in self.ceres_data.data_vars:
             data_source = self.ceres_data
             label = "CERES-EBAF"
@@ -1469,6 +1492,7 @@ class Model_case:
             print("Processed timeseries directory found for %s. Will load data as required." % self.case)
             self.tseries_input = True
             self.tseries_path = "%s/%s/atm/proc/tseries/month_1/" % (self.case_dir,self.case)
+            self.alt_path = "%s/%s" % ('/glade/u/home/jonahshaw/w/archive/taylor_files/',self.case)# dirty hard-coded in for now 06/10/2021
             self.case_da = None
         else:
             try:
@@ -1507,24 +1531,32 @@ class Model_case:
         '''
         # Get file path for variable timeseries
         tseries_files = os.listdir(self.tseries_path)
-        key_str = ".cam.h0.%s." % var # long enough to hopefully make this a unique identifier
+#         key_str = ".cam.h0.%s." % var # long enough to hopefully make this a unique identifier
+        key_str = ".%s." % var # long enough to hopefully make this a unique identifier
         varfiles = [self.tseries_path + x for x in tseries_files if key_str in x]
         if len(varfiles) != 1:
             print('Not able to find unique timeseries file for %s in %s' % (var, self.label))
-            return
-        else:
-            varfile = varfiles[0]
-            var_da = xr.open_dataset(varfile)
+            print('Looking in alternate path: %s' % (self.alt_path))
+            alt_files = os.listdir(self.alt_path)
+            varfiles = [self.alt_path + '/' + x for x in alt_files if key_str in x]
+            if len(varfiles) != 1:
+                print('Alternate path also failed.')
+                return
+            else:
+                print('Found in the alternate path.')
+
+        varfile = varfiles[0]
+        var_da = xr.open_dataset(varfile)
+        try:
+            var_da['time'] = var_da['time_bnds'].isel(bnds=0)
+        except:
+            var_da['time'] = var_da['time_bnds'].isel(nbnd=0) # wut. try-try again?
+
+        if self.t_range:
             try:
-                var_da['time'] = var_da['time_bnds'].isel(bnds=0)
+                var_da = var_da.sel(time=slice(*self.t_range))
             except:
-                var_da['time'] = var_da['time_bnds'].isel(nbnd=0)
-                
-            if self.t_range:
-                try:
-                    var_da = var_da.sel(time=slice(*self.t_range))
-                except:
-                    print("Year format %s - %s not found." % (*self.t_range,))
+                print("Year format %s - %s not found." % (*self.t_range,))
                 
         if self.case_da is None:
             # create self.case_da with var
@@ -1532,3 +1564,4 @@ class Model_case:
         else:
 #             self.case_da = xr.merge([self.case_da, xr.open_dataset(varfile)]) # JKS testing
             self.case_da = xr.merge([self.case_da, var_da],compat='override') # JKS testing
+mpl.rc('text', usetex=False)
