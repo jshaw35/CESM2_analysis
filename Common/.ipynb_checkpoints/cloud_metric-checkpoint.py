@@ -370,7 +370,7 @@ class Cloud_Metric(object):
     def get_cases(self):
         return self.cases
     
-    def plot1D(self, var, layers=False, seasonal=False,season=None, bias=False, lat_range=None):
+    def plot1D(self, var, layers=False, seasonal=False,season=None, bias=False, lat_range=None, asymm=False):
         '''
         General line plot function averaging over longitudes.
         '''
@@ -381,6 +381,12 @@ class Cloud_Metric(object):
         if (season and season not in self.seasons):
             print('%s not a valid argument for "season"' % season, self.seasons)
             return None
+        
+        # Create asymmetrical variables and correct to the new variable name (does NOT handle layers calls)
+        if asymm:
+            self.create_asymm_vars(var)
+            var = '%s_asymm' % var
+            lat_range = [0,90]
         
         # call appropriate plotting wrapper
         if layers:
@@ -403,7 +409,7 @@ class Cloud_Metric(object):
                         lat_range=lat_range)
         else:
             return self.__standard1Dplotwrapper(var, bias=bias, 
-                        lat_range=lat_range, season=season)
+                        lat_range=lat_range, season=season,asymm=asymm)
         
 
     def __standard1Dplotwrapper(self, var, bias=False, lat_range=None, season=None, **kwargs):
@@ -591,7 +597,7 @@ class Cloud_Metric(object):
         
         return fig
         
-    def __standard1Dplot(self, var, da, ax, bias=False, lat_range=None, **kwargs):
+    def __standard1Dplot(self, var, da, ax, bias=False, lat_range=None, asymm=False, **kwargs):
         '''
         Simple 1D plotting function. Need to build in better labels+bias.'''
         obs_source, obs_label = self.__get_data_source(var)
@@ -621,8 +627,12 @@ class Cloud_Metric(object):
 #             im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
             
             ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
-            ax.set_xticks([-1,-1*np.sqrt(3)/2,-0.5,0,0.5,np.sqrt(3)/2,1])
-            ax.set_xticklabels(['90S','60S','30S','0','30N','60N','90N'])
+            if asymm:
+                ax.set_xticks([0,0.5,np.sqrt(3)/2,1])
+                ax.set_xticklabels(['0','30','60','90'])
+            else:
+                ax.set_xticks([-1,-1*np.sqrt(3)/2,-0.5,0,0.5,np.sqrt(3)/2,1])
+                ax.set_xticklabels(['90S','60S','30S','0','30N','60N','90N'])
             
             ax.hlines(0, lat_lims[0], lat_lims[1], colors='gray', linestyles='dashed', label='')
         else:
@@ -630,13 +640,19 @@ class Cloud_Metric(object):
             val = val.sel(lat=slice(lat_lims[0],lat_lims[1]))
             
             ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
-            ax.set_xticks([-1,-1/np.sqrt(2),-0.5,0,0.5,1/np.sqrt(2),1])
-            ax.set_xticklabels(['90S','45S','30S','0','30N','45N','90N'])
-#             ax.set_xticks([-1,-1*np.sqrt(3)/2,-0.5,0,0.5,np.sqrt(3)/2,1])
-#             ax.set_xticklabels(['90S','60S','30S','0','30N','60N','90N'])
-            
-#         ax.set_xlim([-1.1,1.1]) # weird fix??
-        ax.set_xlim([-1,1]) # weird fix??
+            if asymm:
+                ax.set_xticks([0,0.5,np.sqrt(3)/2,1])
+                ax.set_xticklabels(['0','30','60','90'])
+            else:
+                ax.set_xticks([-1,-1*np.sqrt(3)/2,-0.5,0,0.5,np.sqrt(3)/2,1])
+                ax.set_xticklabels(['90S','60S','30S','0','30N','60N','90N'])        
+        if lat_range:
+            ax.set_xlim(*(np.sin(np.pi/180*np.array(lat_range))))
+#         if lat_range:
+#             ax.set_xlim(*(np.sin(np.pi/180*np.array(lat_range))))
+        else:
+            ax.set_xlim([-1,1]) # weird fix??
+#             ax.set_xlim([-1.1,1.1]) # weird fix??
         ax.set_ylabel('')
         ax.set_xlabel('')
         ax.set_title('')
@@ -1454,8 +1470,44 @@ class Cloud_Metric(object):
     def load_vars(self,varlist):
         '''Wrapper for internal function __check_for_vars'''
         self.__check_for_vars(varlist)
-
         
+        
+    def create_asymm_vars(self,var):
+        '''Average between the Northern and Southern hemispheres and
+        add that variable to the case_das. Wrapper for __asymmetrize
+        '''
+        
+        self.load_vars(var) # load variables in case they are not theref
+        
+        # first do the observations
+        obs_source, obs_label = self.__get_data_source(var)
+        self.__asymmetrize(var,obs_source)
+        
+        for k in self.cases: # Iterate over the models
+            _case = self.cases[k]
+            _ds = _case.case_da
+            self.__asymmetrize(var,_ds)
+            
+    def __asymmetrize(self, var, ds):
+        '''
+        Average between the Northern and Southern hemispheres for a variable
+        '''
+        
+        da = ds[var] # variable dataset
+        da = da.transpose('lat',...) # transpose so lat is the first coord and indexing works
+        
+        # index where we split the hemispheres (round to handle odd latitude resolutions)
+        half = round(len(ds['lat']) / 2)
+        
+        south_sect = da[:half][::-1] # take the first half and reverse it (so we go from equator to Spole)
+        north_sect = da[half:]
+        south_sect = south_sect.assign_coords({'lat':north_sect['lat']}) # flip the southern hemisphere lat coords
+        average = (south_sect + north_sect)/2 # average the hemispheres          
+        output = xr.DataArray(average.data, coords=average.coords, dims=average.dims, attrs=da.attrs) # copy stuff over
+        
+        # add the new variable to the original dataarray
+        ds['%s_asymm' % var] = output
+
 class Model_case:
     '''
     Class for models within a cloud metric class.
