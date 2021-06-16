@@ -128,7 +128,11 @@ class Taylor_diagram():
                 ]
 
         # copy axes instance
-        self.ax = ax
+        if ax:
+            self.ax = ax
+        else:
+            self.fig, self.ax = plt.subplots(nrows=1,ncols=1,figsize=[15,15]) # JKS improve output
+#         self.ax = ax
 
         # plot size
         #self.xymax = 1.50

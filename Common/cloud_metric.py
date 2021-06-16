@@ -173,8 +173,8 @@ class Cloud_Metric(object):
         self.seas_dict = {"DJF":0,"JJA":1,"MAM":2,"SON":3}
         
         self.var_label_dict = {'CLDTOT_CAL':'Total Cloud Fraction (\%)', # had a '\n'
-                               'CLDTOT_CAL_LIQ':'Liquid Cloud \n Fraction (\%)',
-                               'CLDTOT_CAL_ICE':'Ice Cloud \n Fraction (\%)',
+                               'CLDTOT_CAL_LIQ':'Liquid Cloud Fraction (\%)',
+                               'CLDTOT_CAL_ICE':'Ice Cloud Fraction (\%)',
                                'CLDTOT_ISCCP':'Total Cloud Fraction (\%)',
                                'CLDTOT_MISR':'Total Cloud Fraction (\%)',
                               }
@@ -370,7 +370,7 @@ class Cloud_Metric(object):
     def get_cases(self):
         return self.cases
     
-    def plot1D(self, var, layers=False, seasonal=False,season=None, bias=False, lat_range=None, asymm=False):
+    def plot1D(self, var, layers=False, seasonal=False,season=None, bias=False, lat_range=None, asymm=False,**kwargs):
         '''
         General line plot function averaging over longitudes.
         '''
@@ -399,25 +399,32 @@ class Cloud_Metric(object):
                 return None
             if seasonal:
                 return self.__seasonallayers1Dplotwrapper(varlist, bias=bias,
-                            lat_range=lat_range)
+                            lat_range=lat_range, **kwargs)
             else:    
                 return self.__layers1Dplotwrapper(varlist, bias=bias, 
-                            lat_range=lat_range, season=season)
+                            lat_range=lat_range, season=season, **kwargs)
         self.__check_for_vars(var)
         if seasonal:
             return self.__seasonal1Dplotwrapper(var, bias=bias, 
-                        lat_range=lat_range)
+                        lat_range=lat_range, **kwargs)
         else:
             return self.__standard1Dplotwrapper(var, bias=bias, 
-                        lat_range=lat_range, season=season,asymm=asymm)
+                        lat_range=lat_range, season=season,asymm=asymm, **kwargs)
         
 
     def __standard1Dplotwrapper(self, var, bias=False, lat_range=None, season=None, **kwargs):
         '''Plot variable against latitude for observations and loaded model runs.'''
 
         # Using plt.subplots only for consistency here.
-        fig, axes = plt.subplots(nrows=1,ncols=1,figsize=[6,4])
-        fig.set_dpi(200)
+        out = False
+        if 'ax' in kwargs.keys(): # use user supplied axes, must be of appropriate size and just a list
+            out = True
+            axes = kwargs.pop('ax') # pop!
+#             del kwargs['ax'] # hmm, like a pop
+        
+        else:
+            fig, axes = plt.subplots(nrows=1,ncols=1,figsize=[6,4])
+            fig.set_dpi(200)
         obs_source, obs_label = self.__get_data_source(var)
 #         obs_label = obs_label.replace('_',' ') # cleans underscores from labels so Latex doesn't bug out JKS
         obs_da = obs_source
@@ -425,7 +432,7 @@ class Cloud_Metric(object):
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                 obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
-            self.__standard1Dplot(var, obs_da, axes, bias=False, lat_range=lat_range, 
+            im = self.__standard1Dplot(var, obs_da, axes, bias=False, lat_range=lat_range, 
                                   label=obs_label,color='black',**kwargs)
 #             self.__standard1Dplot(var, obs_source, axes,
 #                                   lat_range=lat_range, label=obs_label)
@@ -438,7 +445,7 @@ class Cloud_Metric(object):
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
             
             # Works with percents only
-            self.__standard1Dplot(var, _da, axes, bias=bias, lat_range=lat_range, label=_run.label,color=color,**kwargs)
+            _im = self.__standard1Dplot(var, _da, axes, bias=bias, lat_range=lat_range, label=_run.label,color=color,**kwargs)
             
         try: 
             axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
@@ -446,14 +453,21 @@ class Cloud_Metric(object):
             axes.set_ylabel('%s' % (var))
 #         fig.legend()
         
-        return fig
+        if out == True:
+            return None,_im
+        else:
+            return fig, _im
 
     def __layers1Dplotwrapper(self, varlist, bias=False, lat_range=None, season=None, **kwargs):
         '''Plot variable against latitude for observations and loaded model runs.'''
 
 #         fig, axes = plt.subplots(nrows=len(varlist),ncols=1,figsize=[10,2*len(varlist)])
-
-        fig, axes = plt.subplots(nrows=1,ncols=len(varlist),figsize=[15,5])
+        out = False
+        if 'ax' in kwargs.keys(): # use user supplied axes, must be of appropriate size and just a list
+            out = True
+            axes = kwargs.pop('ax') # pop!
+        else:    
+            fig, axes = plt.subplots(nrows=1,ncols=len(varlist),figsize=[15,5])
         obs_source, obs_label = self.__get_data_source(varlist[0])
         
         if bias:
@@ -467,7 +481,7 @@ class Cloud_Metric(object):
                 if season:
                     _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                     obs_da = _season_da[self.seas_dict[season]].to_dataset(name=var)
-                self.__standard1Dplot(var, obs_da, ax, bias=False, lat_range=lat_range, 
+                _im = self.__standard1Dplot(var, obs_da, ax, bias=False, lat_range=lat_range, 
                                       label=obs_label,color='black')
             
             for k,color in zip(self.cases,self.colors):
@@ -477,10 +491,9 @@ class Cloud_Metric(object):
                     _season_da = season_mean(_da[var]).where(np.absolute(_da['lat'])<82)
                     _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
                 
-                self.__standard1Dplot(var, _da, ax, bias=bias,
+                _im = self.__standard1Dplot(var, _da, ax, bias=bias,
                                       lat_range=lat_range,label=_run.label,color=color)
         
-        fig.legend(labels=labels)
         
         xlabels = []
         for i in varlist: # jks improve labelling with self.var_label_dict
@@ -497,10 +510,15 @@ class Cloud_Metric(object):
             self.add_labels(xlabels=xlabels, xaxes=xax) # JKS testing error
         self.share_ylims(axes)
         
-        fig.subplots_adjust(hspace=0.5)
+
         
-        return fig
-        
+        if out == True:
+            return labels,_im
+        else:
+            fig.subplots_adjust(hspace=0.5)
+            fig.legend(labels=labels)
+            return fig, _im
+                
     def __seasonal1Dplotwrapper(self, var, bias=False, lat_range=None, **kwargs):
         '''Plot variable against latitude for observations and loaded model runs.'''
         obs_source, obs_label = self.__get_data_source(var)
@@ -626,7 +644,7 @@ class Cloud_Metric(object):
 
 #             im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
             
-            ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
+            im = ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
             if asymm:
                 ax.set_xticks([0,0.5,np.sqrt(3)/2,1])
                 ax.set_xticklabels(['0','30','60','90'])
@@ -639,7 +657,7 @@ class Cloud_Metric(object):
 #             im = val.sel(lat=slice(lat_lims[0],lat_lims[1])).plot(ax=ax, add_legend=False, **kwargs)
             val = val.sel(lat=slice(lat_lims[0],lat_lims[1]))
             
-            ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
+            im = ax.plot(np.sin(np.pi/180*val['lat']),val,**kwargs)
             if asymm:
                 ax.set_xticks([0,0.5,np.sqrt(3)/2,1])
                 ax.set_xticklabels(['0','30','60','90'])
@@ -656,6 +674,8 @@ class Cloud_Metric(object):
         ax.set_ylabel('')
         ax.set_xlabel('')
         ax.set_title('')
+        
+        return im
         
     def plot2D(self, var, projection='PlateCarree',layers=False,
                seasonal=False, season=None, bias=False,**kwargs):
