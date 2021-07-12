@@ -43,7 +43,6 @@ class Cloud_Metric(object):
             self.contour_levels = [-6,-5,-4,-3,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,3,4,5,6]
             self.color_map = cmaps.ncl_default
             
-#             self.__load_GOCCP_data()
             try:
                 self.__load_GOCCP_data()
                 
@@ -56,6 +55,7 @@ class Cloud_Metric(object):
                 self.__load_CALIOP_olimpia()
             except:
                 print("Could not load CALIOP SLFs.")
+                print("Error: ", sys.exc_info())
                 self.incloud_caliop_slf = None
                 self.ct_caliop_slf = None
                 return None
@@ -64,24 +64,28 @@ class Cloud_Metric(object):
                 self.__load_CERESEBAF()
             except:
                 print('Failed to load CERES-EBAF data.')
+                print("Error: ", sys.exc_info())
                 self.ceres_data = None
                 
             try:
                 self.__load_ISCCP()
             except:
                 print('Failed to load ISCCP data.')
+                print("Error: ", sys.exc_info())
                 self.isccp_data = None
                 
             try:
                 self.__load_MISR()
             except:
                 print('Failed to load MISR data.')
+                print("Error: ", sys.exc_info())
                 self.MISR_data = None
                 
             try:
                 self.__load_MODIS()
             except:
                 print('Failed to load MODIS data.')
+                print("Error: ", sys.exc_info())
                 self.modis_data = None
     
     
@@ -181,8 +185,7 @@ class Cloud_Metric(object):
         
         self.months = ['J','F','M','A','M','J','J','A','S','O','N','D'] # month initials
         
-        
-        
+              
     def __load_GOCCP_data(self):
         '''
         Load GOCCP data for model comparison. Relabel variables to match model output.
@@ -192,6 +195,39 @@ class Cloud_Metric(object):
         '''
         print('Loading GOCCP data...', end = '')
         
+        # Undefined cloud variables have an extra dimenson and need to be indexed at 0
+        unvars = ['cllcalipso_un','clmcalipso_un','clhcalipso_un','cltcalipso_un']
+        
+        # Time intensively open and concatenate all of the GOCCP obs
+        raw_path = '/glade/work/jonahshaw/obs/CALIPSO/GOCCP/2Ddata/grid_2x2_L40/'
+        phase_files = glob.glob('%s/*/*Phase*.nc' % raw_path)
+        height_files = glob.glob('%s/*/*MapLowMidHigh330m*.nc' % raw_path)
+        phase_files.sort()
+        height_files.sort()
+        
+        _phase_ds = xr.open_mfdataset(phase_files, combine='by_coords')
+        _cloud_ds = xr.open_mfdataset(height_files, combine='by_coords')
+        
+        _goccp_data = xr.merge([_phase_ds, _cloud_ds])
+
+        # Select right value for undefined clouds.
+        for i in unvars:
+             _goccp_data[i] = _goccp_data[i].isel(cat1=0)
+        # Scale cloud fraction values to a percent value to match COSP
+        goccp_vars = list(self.name_dict.keys())
+
+        for i in goccp_vars: #think maybe: with xr.set_options(keep_attrs=True)
+            _goccp_data[i] = 100*_goccp_data[i]
+
+        # Quickly add a variable to generate weights
+        _goccp_data = add_weights(_goccp_data) # this is causing an issue before I interpolate. Error:  (<class 'KeyError'>, KeyError('lat'), <traceback object at 0x2b3808c7beb0>)
+
+        # Rename variables so they will match COSP names and index correctly
+        self.goccp_data = _goccp_data.rename(self.name_dict)
+        
+        print('done.')
+        return        
+        
         processed_path = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/amip_processed.nc'
         if os.path.exists(processed_path):
             self.goccp_data = xr.open_dataset(processed_path)
@@ -200,9 +236,6 @@ class Cloud_Metric(object):
 #         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_interpolation/'
         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/'
         #'/nird/home/jonahks/p/jonahks/GOCCP_data/'
-                
-        # These have an extra dimenson and need to indexed at 0
-        unvars = ['cllcalipso_un','clmcalipso_un','clhcalipso_un','cltcalipso_un']
         
         if not os.path.exists(goccp_dir):
             print('Could not find GOCCP directory %s' % goccp_dir)
@@ -218,6 +251,7 @@ class Cloud_Metric(object):
             _prepath = '%s%s/' % (goccp_dir, year)
             _files = os.listdir(_prepath)
             
+            # could replace with glob.glob
             _phasefiles = [_prepath + x for x in _files if 'Phase' in x]
             _cloudfiles = [_prepath + x for x in _files if 'MapLowMidHigh330m' in x]
             
@@ -1566,6 +1600,7 @@ class Model_case:
             self.tseries_path = "%s/%s/atm/proc/tseries/month_1/" % (self.case_dir,self.case)
             self.alt_path = "%s/%s" % ('/glade/u/home/jonahshaw/w/archive/taylor_files/',self.case)# dirty hard-coded in for now 06/10/2021
             self.case_da = None
+            return
         else:
             try:
                 print('Trying to load concatenated file for %s' % self.case)

@@ -40,10 +40,8 @@ class Cloud_Metric(object):
             self.__addlistsanddicts()
             
             # Prep for NCL-like plotting:
-            self.contour_levels = [-6,-5,-4,-3,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,3,4,5,6]
             self.color_map = cmaps.ncl_default
             
-#             self.__load_GOCCP_data()
             try:
                 self.__load_GOCCP_data()
                 
@@ -56,6 +54,7 @@ class Cloud_Metric(object):
                 self.__load_CALIOP_olimpia()
             except:
                 print("Could not load CALIOP SLFs.")
+                print("Error: ", sys.exc_info())
                 self.incloud_caliop_slf = None
                 self.ct_caliop_slf = None
                 return None
@@ -64,24 +63,28 @@ class Cloud_Metric(object):
                 self.__load_CERESEBAF()
             except:
                 print('Failed to load CERES-EBAF data.')
+                print("Error: ", sys.exc_info())
                 self.ceres_data = None
                 
             try:
                 self.__load_ISCCP()
             except:
                 print('Failed to load ISCCP data.')
+                print("Error: ", sys.exc_info())
                 self.isccp_data = None
                 
             try:
                 self.__load_MISR()
             except:
                 print('Failed to load MISR data.')
+                print("Error: ", sys.exc_info())
                 self.MISR_data = None
                 
             try:
                 self.__load_MODIS()
             except:
                 print('Failed to load MODIS data.')
+                print("Error: ", sys.exc_info())
                 self.modis_data = None
     
     
@@ -118,7 +121,8 @@ class Cloud_Metric(object):
                      'cllcalipso':'CLDLOW_CAL','clmcalipso':'CLDMED_CAL',
                      'clhcalipso':'CLDHGH_CAL','cltcalipso':'CLDTOT_CAL',
                      'cllcalipso_un':'CLDLOW_CAL_UN','clmcalipso_un':'CLDMED_CAL_UN',
-                     'clhcalipso_un':'CLDHGH_CAL_UN','cltcalipso_un':'CLDTOT_CAL_UN'
+                     'clhcalipso_un':'CLDHGH_CAL_UN','cltcalipso_un':'CLDTOT_CAL_UN',
+#                      'latitude':'lat','longitude':'lon',
                     }
         self.ceres_var_dict = {
             'toa_sw_all_mon':'FSNT','toa_lw_all_mon':'FLNT', # FSNT is wrong (both sign and magnitude)
@@ -177,10 +181,11 @@ class Cloud_Metric(object):
                                'CLDTOT_CAL_ICE':'Ice Cloud Fraction (\%)',
                                'CLDTOT_ISCCP':'Total Cloud Fraction (\%)',
                                'CLDTOT_MISR':'Total Cloud Fraction (\%)',
+                               'CLDTHCK_MISR':'Thick low-level Cloud Fraction (\%)',
+                               'CLDTHCK_MODIS':'Thick high-level Cloud Fraction (\%)',
                               }
         
         self.months = ['J','F','M','A','M','J','J','A','S','O','N','D'] # month initials
-        
         
         
     def __load_GOCCP_data(self):
@@ -192,6 +197,42 @@ class Cloud_Metric(object):
         '''
         print('Loading GOCCP data...', end = '')
         
+        # Undefined cloud variables have an extra dimenson and need to be indexed at 0
+        unvars = ['cllcalipso_un','clmcalipso_un','clhcalipso_un','cltcalipso_un']
+        
+        # Time intensively open and concatenate all of the GOCCP obs
+        raw_path = '/glade/work/jonahshaw/obs/CALIPSO/GOCCP/2Ddata/grid_2x2_L40/'
+        phase_files = glob.glob('%s/*/*Phase*.nc' % raw_path)
+        height_files = glob.glob('%s/*/*MapLowMidHigh330m*.nc' % raw_path)
+        phase_files.sort()
+        height_files.sort()
+        
+        _phase_ds = xr.open_mfdataset(phase_files, combine='by_coords')
+        _cloud_ds = xr.open_mfdataset(height_files, combine='by_coords')
+        
+        _goccp_data = xr.merge([_phase_ds, _cloud_ds])
+
+        # Select right value for undefined clouds.
+        for i in unvars:
+             _goccp_data[i] = _goccp_data[i].isel(cat1=0)
+        # Scale cloud fraction values to a percent value to match COSP
+        goccp_vars = list(self.name_dict.keys())
+
+        for i in goccp_vars: #think maybe: with xr.set_options(keep_attrs=True)
+            _goccp_data[i] = 100*_goccp_data[i]
+            
+        _goccp_data = _goccp_data.rename({'latitude':'lat','longitude':'lon'})
+        _goccp_data = _goccp_data.assign_coords(lon=(_goccp_data.lon % 360)).sortby('lon')
+
+        # Quickly add a variable to generate weights
+        _goccp_data = add_weights(_goccp_data) # this is causing an issue before I interpolate. Error:  (<class 'KeyError'>, KeyError('lat'), <traceback object at 0x2b3808c7beb0>)
+
+        # Rename variables so they will match COSP names and index correctly
+        self.goccp_data = _goccp_data.rename(self.name_dict)
+        
+        print('done.')
+        return        
+        
         processed_path = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/amip_processed.nc'
         if os.path.exists(processed_path):
             self.goccp_data = xr.open_dataset(processed_path)
@@ -200,9 +241,6 @@ class Cloud_Metric(object):
 #         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_interpolation/'
         goccp_dir = '/glade/u/home/jonahshaw/w/obs/CALIPSO/GOCCP/2Ddata/1.25x0.9_python_interp/'
         #'/nird/home/jonahks/p/jonahks/GOCCP_data/'
-                
-        # These have an extra dimenson and need to indexed at 0
-        unvars = ['cllcalipso_un','clmcalipso_un','clhcalipso_un','cltcalipso_un']
         
         if not os.path.exists(goccp_dir):
             print('Could not find GOCCP directory %s' % goccp_dir)
@@ -218,6 +256,7 @@ class Cloud_Metric(object):
             _prepath = '%s%s/' % (goccp_dir, year)
             _files = os.listdir(_prepath)
             
+            # could replace with glob.glob
             _phasefiles = [_prepath + x for x in _files if 'Phase' in x]
             _cloudfiles = [_prepath + x for x in _files if 'MapLowMidHigh330m' in x]
             
@@ -291,7 +330,7 @@ class Cloud_Metric(object):
         Load ISCCP cloud total processed for COSP ISCCP simulator.
         '''
         print('Loading ISCCP cloud total...', end = '')
-        _isccp_data = xr.open_dataset('/glade/u/home/jonahshaw/w/obs/ISCCP/cltisccp_198307-200806.nc')
+        _isccp_data = xr.open_dataset('/glade/u/home/jonahshaw/w/obs/ISCCP/cltisccp_mon_HGM.v01r00_199807-201612.nc')
         _isccp_data = _isccp_data.rename(self.isccp_var_dict)
         
         self.isccp_data = _isccp_data
@@ -326,23 +365,29 @@ class Cloud_Metric(object):
         
     def __load_MODIS(self):
         '''
-        Load MODIS cldtau-cldheight histogram climatology from 2002/07 to 2010/07.
+        Was "Load MODIS cldtau-cldheight histogram climatology from 2002/07 to 2010/07."
+        Now just using the processed thick cloud fraction from 2003-2020. I think
+        that there is a more complete file of processed data somewhere...
         '''
         
         print('Loading MODIS cloud histograms...', end = '')
         
-        modis_dir = '/glade/work/jonahshaw/obs/MODIS/'
-        modis_climo_file = 'MCD03_M3_NC_200207to201007.V01.nc'
+        modis_dir = '/glade/work/jonahshaw/archive/taylor_files/2021_obs/'
+        modis_climo_file = 'MODIS_CLDTHCK_200301_202012.nc'
+#         modis_dir = '/glade/work/jonahshaw/obs/MODIS/'
+#         modis_climo_file = 'MCD03_M3_NC_200207to201007.V01.nc'
+        
         modis_climo = xr.open_dataset('%s/%s' % (modis_dir,modis_climo_file))
         
         # convert cloudtop pressure from Pa to mb to match COSP
-        modis_climo = modis_climo.assign_coords({'Cloud_Top_Pressure':modis_climo.Cloud_Top_Pressure*1e-2}) 
-        modis_climo['Cloud_Top_Pressure'] = modis_climo['Cloud_Top_Pressure'].assign_attrs({'units' : 'mb'}) # rename variable to km
+#         modis_climo = modis_climo.assign_coords({'Cloud_Top_Pressure':modis_climo.Cloud_Top_Pressure*1e-2}) 
+#         modis_climo['Cloud_Top_Pressure'] = modis_climo['Cloud_Top_Pressure'].assign_attrs({'units' : 'mb'}) # rename variable to km
         
-        modis_climo = modis_climo.rename(self.modis_vars_dict)
+#         modis_climo = modis_climo.rename(self.modis_vars_dict)
         
-        for i in self.modis_cloud_fracs: # Convert from cloud fraction to cloud percent
-            modis_climo[i] = 100*modis_climo[i]
+#         for i in self.modis_cloud_fracs: # Convert from cloud fraction to cloud percent
+#             modis_climo[i] = 100*modis_climo[i]
+        modis_climo['CLDTHCK_MODIS'] = 100*modis_climo['CLDTHCK_MODIS']
         
         self.modis_data = modis_climo
         
@@ -451,7 +496,11 @@ class Cloud_Metric(object):
             axes.set_ylabel('%s (%s)' % (_da[var].long_name,_da[var].units))
         except:
             axes.set_ylabel('%s' % (var))
-#         fig.legend()
+#         if not 'ax' in kwargs.keys():
+        try: 
+            fig.legend()
+        except UnboundLocalError:
+            axes.legend()
         
         if out == True:
             return None,_im
@@ -626,7 +675,7 @@ class Cloud_Metric(object):
         if (bias and lat_lims[0] < -82): lat_lims[0] = -82
         if (bias and lat_lims[1] > 82): lat_lims[1] = 82
             
-        if 'time' not in da.dims: # catches a bug with seasonal averages
+        if 'time' not in da[var].dims: # catches a bug with seasonal averages
             val = da[var].mean(dim='lon', skipna=True)
         else:
             val = da[var].mean(dim = ['time','lon'], skipna=True)
@@ -734,10 +783,12 @@ class Cloud_Metric(object):
             out = True
             if bias:
                 case_axes = kwargs['ax']
+                axes = kwargs['ax']
             else:
                 case_axes = kwargs['ax'][1:]
                 axes = np.array(kwargs['ax'])
             del kwargs['ax'] # hmm, like a pop
+            ylabels = None
         
         else:
             if bias:
@@ -773,7 +824,13 @@ class Cloud_Metric(object):
         if not bias: # weird re-org here
             # jks handle season
             _da = obs_source
-            _label = '%s %s' % (obs_label, self.var_label_dict[var])
+#             _label = obs_label
+            try:
+                _sublabel = self.var_label_dict[var] if var in self.var_label_dict.keys() else _da[var].long_name # this is obnoxious
+            except:
+                _sublabel = var
+            _label = '%s %s' % (obs_label, _sublabel)
+#             _label = '%s %s' % (obs_label, self.var_label_dict[var])
             if season:
                 _season_da = season_mean(obs_source[var]).where(np.absolute(obs_source['lat'])<82)
                 _da = _season_da[self.seas_dict[season]].to_dataset(name=var)
@@ -1606,9 +1663,16 @@ class Model_case:
 #         key_str = ".cam.h0.%s." % var # long enough to hopefully make this a unique identifier
         key_str = ".%s." % var # long enough to hopefully make this a unique identifier
         varfiles = [self.tseries_path + x for x in tseries_files if key_str in x]
-        if len(varfiles) != 1:
-            print('Not able to find unique timeseries file for %s in %s' % (var, self.label))
-            print('Looking in alternate path: %s' % (self.alt_path))
+        if len(varfiles) == 1:
+            varfile = varfiles[0]
+            var_da = xr.open_dataset(varfile)
+            
+        elif len(varfiles) > 1:
+            print('Found multiple timeseries files for %s in %s, attempting merge...' % (var, self.label), end = '')
+            var_da = xr.open_mfdataset(varfiles,combine='by_coords')
+            print('done.')
+        else:
+            print('No timeseries files found, looking in alternate path: %s' % (self.alt_path))
             alt_files = os.listdir(self.alt_path)
             varfiles = [self.alt_path + '/' + x for x in alt_files if key_str in x]
             if len(varfiles) != 1:
@@ -1616,9 +1680,11 @@ class Model_case:
                 return
             else:
                 print('Found in the alternate path.')
+                varfile = varfiles[0]
+                var_da = xr.open_dataset(varfile)
 
-        varfile = varfiles[0]
-        var_da = xr.open_dataset(varfile)
+#         varfile = varfiles[0]
+#         var_da = xr.open_dataset(varfile)
         try:
             var_da['time'] = var_da['time_bnds'].isel(bnds=0)
         except:
